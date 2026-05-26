@@ -18,9 +18,13 @@ export function GetFileContent(arg1:string):Promise<string>;
 
 export function GetFileDiff(arg1:string):Promise<Record<string, string>>;
 
+export function GetStartupWorkspace():Promise<string>;
+
 export function GetWorkspaceHistory():Promise<Array<config.WorkspaceEntry>>;
 
 export function GetWorkspaceInfo():Promise<main.WorkspaceInfo>;
+
+export function OpenInNewWindow(arg1:string):Promise<void>;
 
 export function OpenWorkspace(arg1:string):Promise<main.WorkspaceInfo>;
 

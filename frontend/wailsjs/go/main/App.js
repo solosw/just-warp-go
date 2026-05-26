@@ -30,12 +30,20 @@ export function GetFileDiff(arg1) {
   return window['go']['main']['App']['GetFileDiff'](arg1);
 }
 
+export function GetStartupWorkspace() {
+  return window['go']['main']['App']['GetStartupWorkspace']();
+}
+
 export function GetWorkspaceHistory() {
   return window['go']['main']['App']['GetWorkspaceHistory']();
 }
 
 export function GetWorkspaceInfo() {
   return window['go']['main']['App']['GetWorkspaceInfo']();
+}
+
+export function OpenInNewWindow(arg1) {
+  return window['go']['main']['App']['OpenInNewWindow'](arg1);
 }
 
 export function OpenWorkspace(arg1) {

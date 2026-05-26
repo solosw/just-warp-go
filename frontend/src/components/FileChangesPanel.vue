@@ -1,14 +1,22 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Diff } from 'vue-diff/dist/index.es.js'
-import 'vue-diff/dist/index.css'
+import { ref, onMounted, onUnmounted } from 'vue'
+import DiffView from './DiffView.vue'
 import { useFileChangesStore } from '../stores/fileChanges'
 import { snapshot } from '../../wailsjs/go/models'
+import { detectLang } from '../utils/detectLang'
 import type { FileDiff } from '../types'
 
 const store = useFileChangesStore()
 const viewingDiff = ref<string | null>(null)
 const diffContent = ref<FileDiff | null>(null)
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && viewingDiff.value) {
+    closeDiff()
+  }
+}
+onMounted(() => document.addEventListener('keydown', onKeydown))
+onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 const statusLabel: Record<string, string> = {
   added: '+新增',
@@ -20,18 +28,6 @@ const statusClass: Record<string, string> = {
   added: 'status-added',
   modified: 'status-modified',
   deleted: 'status-deleted'
-}
-
-function detectLang(filePath: string): string {
-  const ext = (filePath.split('.').pop() || '').toLowerCase()
-  const map: Record<string, string> = {
-    ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
-    vue: 'html', go: 'go', rs: 'rust', py: 'python', rb: 'ruby',
-    css: 'css', scss: 'scss', html: 'xml', json: 'json', xml: 'xml',
-    yaml: 'yaml', yml: 'yaml', md: 'markdown', sql: 'sql',
-    sh: 'bash', bat: 'dos', c: 'c', cpp: 'cpp', java: 'java',
-  }
-  return map[ext] || 'plaintext'
 }
 
 async function showDiff(file: snapshot.FileChange) {
@@ -61,6 +57,10 @@ function closeDiff() {
       >
         <span class="status-badge">{{ statusLabel[f.status] }}</span>
         <span class="file-path">{{ f.path }}</span>
+        <span class="diff-stats">
+          <template v-if="f.additions"><span class="stat-add">+{{ f.additions }}</span></template>
+          <template v-if="f.deletions"><span class="stat-del">-{{ f.deletions }}</span></template>
+        </span>
         <div class="file-actions">
           <button class="btn-accept" @click.stop="store.acceptFile(f.path)" title="接受">&#x2713;</button>
           <button class="btn-revert" @click.stop="store.revertFile(f.path)" title="回退">&#x21A9;</button>
@@ -73,22 +73,19 @@ function closeDiff() {
       <button class="btn-all btn-revert-all" @click="store.revertAll()">回退全部</button>
     </div>
 
-    <!-- Diff Modal -->
-    <div v-if="viewingDiff" class="diff-overlay" @click.self="closeDiff">
-      <div class="diff-modal">
+    <div v-if="viewingDiff" class="diff-overlay" @click="closeDiff">
+      <div class="diff-modal" @click.stop>
         <div class="diff-header">
           <span>{{ viewingDiff }}</span>
-          <button class="btn-close" @click="closeDiff">&times;</button>
+          <button class="btn-close" @click.stop="closeDiff">&times;</button>
         </div>
         <div class="diff-body">
-          <Diff
+          <DiffView
             v-if="diffContent"
-            mode="unified"
-            theme="dark"
+            :old-string="diffContent.old"
+            :new-string="diffContent.new"
             :language="detectLang(viewingDiff!)"
-            :prev="diffContent.old"
-            :current="diffContent.new"
-            :folding="true"
+            :file-path="viewingDiff!"
           />
         </div>
       </div>
@@ -134,9 +131,7 @@ function closeDiff() {
   border-bottom: 1px solid #222;
   font-size: 12px;
 }
-.file-item:hover {
-  background: #2a2a2e;
-}
+.file-item:hover { background: #2a2a2e; }
 .status-badge {
   font-size: 11px;
   padding: 0 4px;
@@ -153,6 +148,15 @@ function closeDiff() {
   white-space: nowrap;
   color: #ccc;
 }
+.diff-stats {
+  display: flex;
+  gap: 4px;
+  font-size: 11px;
+  font-family: Consolas, monospace;
+  flex-shrink: 0;
+}
+.stat-add { color: #3fb950; }
+.stat-del { color: #f85149; }
 .file-actions {
   display: flex;
   gap: 2px;
@@ -191,7 +195,6 @@ function closeDiff() {
 .btn-revert-all { background: #c62828; color: #fff; }
 .btn-revert-all:hover { background: #d32f2f; }
 
-/* Diff Modal */
 .diff-overlay {
   position: fixed;
   inset: 0;
@@ -229,12 +232,5 @@ function closeDiff() {
   cursor: pointer;
 }
 .btn-close:hover { color: #fff; }
-.diff-body {
-  flex: 1;
-  overflow: auto;
-  min-height: 0;
-}
-.diff-body :deep(.vue-diff-wrapper) {
-  height: 100%;
-}
+.diff-body { flex: 1; overflow: auto; min-height: 0; }
 </style>

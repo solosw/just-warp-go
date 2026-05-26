@@ -2,8 +2,8 @@
 import { ref, watch, computed } from 'vue'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github-dark.css'
-import { Diff } from 'vue-diff/dist/index.es.js'
-import 'vue-diff/dist/index.css'
+import DiffView from './DiffView.vue'
+import { detectLang } from '../utils/detectLang'
 import { GetFileContent, GetFileDiff } from '../../wailsjs/go/main/App'
 import { useFileChangesStore } from '../stores/fileChanges'
 
@@ -25,19 +25,6 @@ const isChanged = computed(() =>
 const noDifference = computed(() =>
   showDiff.value && oldContent.value === newContent.value
 )
-
-function detectLang(filePath: string): string {
-  const ext = (filePath.split('.').pop() || '').toLowerCase()
-  const map: Record<string, string> = {
-    ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
-    vue: 'html', go: 'go', rs: 'rust', py: 'python', rb: 'ruby',
-    css: 'css', scss: 'scss', html: 'xml', json: 'json', xml: 'xml',
-    yaml: 'yaml', yml: 'yaml', md: 'markdown', sql: 'sql',
-    sh: 'bash', bat: 'dos', c: 'c', cpp: 'cpp', java: 'java',
-    kt: 'kotlin', swift: 'swift', php: 'php', lua: 'lua',
-  }
-  return map[ext] || 'plaintext'
-}
 
 function highlight(code: string, filePath: string): string {
   if (!code) return ''
@@ -101,13 +88,11 @@ watch(() => props.filePath, loadContent, { immediate: true })
       文件内容与快照一致，无差异
     </div>
     <div v-else-if="showDiff" class="diff-wrap">
-      <Diff
-        mode="unified"
-        theme="dark"
+      <DiffView
+        :old-string="oldContent"
+        :new-string="newContent"
         :language="detectLang(filePath)"
-        :prev="oldContent"
-        :current="newContent"
-        :folding="true"
+        :file-path="filePath"
       />
     </div>
     <pre v-else class="file-content" v-html="highlightedHtml"></pre>
@@ -151,10 +136,7 @@ watch(() => props.filePath, loadContent, { immediate: true })
   white-space: nowrap;
 }
 .btn-diff:hover { background: #30363d; }
-.file-loading, .file-error, .file-no-diff {
-  padding: 20px;
-  color: #8b949e;
-}
+.file-loading, .file-error, .file-no-diff { padding: 20px; color: #8b949e; }
 .file-error { color: #f85149; }
 .file-content {
   flex: 1;
@@ -169,15 +151,5 @@ watch(() => props.filePath, loadContent, { immediate: true })
   padding: 12px;
   display: block;
 }
-.diff-wrap {
-  flex: 1;
-  overflow: auto;
-  min-height: 0;
-}
-.diff-wrap :deep(.vue-diff-wrapper) {
-  height: 100%;
-}
-.diff-wrap :deep(.vue-diff-viewer) {
-  height: 100%;
-}
+.diff-wrap { flex: 1; overflow: auto; min-height: 0; }
 </style>

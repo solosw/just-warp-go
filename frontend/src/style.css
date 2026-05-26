@@ -34,3 +34,35 @@ html, body {
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
+
+/* v-code-diff diff colors — apply regardless of theme */
+.blob-code-addition,
+.code-diff-view .blob-code-addition {
+  background: rgba(46,160,67,.2) !important;
+}
+.blob-code-addition .blob-code-inner {
+  background: rgba(46,160,67,0) !important;
+}
+.blob-code-deletion,
+.code-diff-view .blob-code-deletion {
+  background: rgba(248,81,73,.2) !important;
+}
+.blob-code-deletion .blob-code-inner {
+  background: rgba(248,81,73,0) !important;
+}
+.blob-num-addition,
+.code-diff-view .blob-num-addition {
+  background: rgba(63,185,80,.35) !important;
+  color: #3fb950 !important;
+}
+.blob-num-deletion,
+.code-diff-view .blob-num-deletion {
+  background: rgba(248,81,73,.35) !important;
+  color: #f85149 !important;
+}
+.code-diff-view .blob-code-inner {
+  color: #c9d1d9 !important;
+}
+.code-diff-view .blob-code-marker::before {
+  color: inherit !important;
+}

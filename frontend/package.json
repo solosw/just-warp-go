@@ -13,8 +13,7 @@
     "@xterm/xterm": "^6.0.0",
     "highlight.js": "^11.11.1",
     "pinia": "^3.0.4",
-    "vue": "^3.2.37",
-    "vue-diff": "^1.2.4"
+    "vue": "^3.2.37"
   },
   "devDependencies": {
     "@babel/types": "^7.18.10",

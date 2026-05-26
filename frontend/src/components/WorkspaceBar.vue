@@ -25,7 +25,13 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 
 async function selectFromHistory(path: string) {
   closeDropdown()
-  await ws.openWorkspace(path)
+  // If selecting the same workspace, stay; otherwise open in new window
+  if (ws.info?.path === path) return
+  if (ws.hasWorkspace) {
+    await ws.openInNewWindow(path)
+  } else {
+    await ws.openWorkspace(path)
+  }
 }
 
 async function removeHistory(path: string, e: Event) {

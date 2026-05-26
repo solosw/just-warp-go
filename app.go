@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"sync"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -16,8 +18,9 @@ import (
 
 // App is the main application struct with bound methods.
 type App struct {
-	ctx       context.Context
-	workspace string
+	ctx              context.Context
+	workspace        string
+	startupWorkspace string // set via CLI --workspace flag
 
 	snapEng  *snapshot.Engine
 	termMgr  *terminal.Manager
@@ -42,6 +45,24 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+}
+
+// GetStartupWorkspace returns the workspace path from CLI, used by frontend to auto-open.
+func (a *App) GetStartupWorkspace() string {
+	return a.startupWorkspace
+}
+
+// OpenInNewWindow launches a new app instance for the given workspace.
+func (a *App) OpenInNewWindow(path string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("找不到可执行文件: %w", err)
+	}
+	cmd := exec.Command(exe, "--workspace", path)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("启动新窗口失败: %w", err)
+	}
+	return nil
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -115,7 +136,9 @@ func (a *App) OpenWorkspace(path string) (*WorkspaceInfo, error) {
 		a.cfgStore.SaveWorkspace(path)
 	}
 
-	return a.makeWorkspaceInfo(), nil
+	info := a.makeWorkspaceInfo()
+	a.emitChanges() // push initial changes to frontend event listener
+	return info, nil
 }
 
 // GetWorkspaceHistory returns the list of previously opened workspaces.

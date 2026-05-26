@@ -67,6 +67,8 @@ export namespace snapshot {
 	export class FileChange {
 	    path: string;
 	    status: string;
+	    additions: number;
+	    deletions: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new FileChange(source);
@@ -76,6 +78,8 @@ export namespace snapshot {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
 	        this.status = source["status"];
+	        this.additions = source["additions"];
+	        this.deletions = source["deletions"];
 	    }
 	}
 

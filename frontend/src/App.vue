@@ -2,6 +2,7 @@
 import { onMounted } from 'vue'
 import { useWorkspaceStore } from './stores/workspace'
 import { useFileChangesStore } from './stores/fileChanges'
+import { GetStartupWorkspace } from '../wailsjs/go/main/App'
 import WorkspaceBar from './components/WorkspaceBar.vue'
 import FileTreePanel from './components/FileTreePanel.vue'
 import TerminalPanel from './components/TerminalPanel.vue'
@@ -10,9 +11,13 @@ import FileChangesPanel from './components/FileChangesPanel.vue'
 const ws = useWorkspaceStore()
 const fc = useFileChangesStore()
 
-onMounted(() => {
+onMounted(async () => {
   ws.loadHistory()
   fc.initListener()
+  const startupWs = await GetStartupWorkspace()
+  if (startupWs) {
+    await ws.openWorkspace(startupWs)
+  }
 })
 </script>
 

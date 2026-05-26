@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const snapDir = ".warp-snapshots"
@@ -125,32 +126,80 @@ func (e *Engine) HasSnapshot() bool {
 	return len(e.manifest.Files) > 0
 }
 
-// ChangedFiles returns files that differ from their snapshots.
+// ChangedFiles returns files that differ from their snapshots, with line stats.
 func (e *Engine) ChangedFiles(currentFiles []string) []FileChange {
 	currentSet := make(map[string]bool, len(currentFiles))
 	for _, f := range currentFiles {
 		currentSet[f] = true
 	}
 	var changes []FileChange
-	// Modified and new files
 	for _, f := range currentFiles {
 		oldHash, existed := e.manifest.Files[f]
 		if !existed {
-			changes = append(changes, FileChange{Path: f, Status: StatusAdded})
+			adds, _ := e.diffStats("", filepath.Join(e.workspace, f))
+			changes = append(changes, FileChange{Path: f, Status: StatusAdded, Additions: adds})
 		} else {
 			newHash := hashFile(filepath.Join(e.workspace, f))
 			if newHash != oldHash {
-				changes = append(changes, FileChange{Path: f, Status: StatusModified})
+				adds, dels := e.diffStats(e.snapFilePath(f), filepath.Join(e.workspace, f))
+				changes = append(changes, FileChange{Path: f, Status: StatusModified, Additions: adds, Deletions: dels})
 			}
 		}
 	}
-	// Deleted files
 	for f := range e.manifest.Files {
 		if !currentSet[f] {
-			changes = append(changes, FileChange{Path: f, Status: StatusDeleted})
+			_, dels := e.diffStats(e.snapFilePath(f), "")
+			changes = append(changes, FileChange{Path: f, Status: StatusDeleted, Deletions: dels})
 		}
 	}
 	return changes
+}
+
+// diffStats reads oldPath and newPath, returns (additions, deletions) line counts.
+// Pass empty string for a non-existent path (new or deleted file).
+func (e *Engine) diffStats(oldPath, newPath string) (additions, deletions int) {
+	oldLines := readLines(oldPath)
+	newLines := readLines(newPath)
+
+	oldCount := make(map[string]int, len(oldLines))
+	for _, l := range oldLines {
+		oldCount[l]++
+	}
+	newCount := make(map[string]int, len(newLines))
+	for _, l := range newLines {
+		newCount[l]++
+	}
+
+	// Lines in new but not (fully) in old = additions
+	for l, n := range newCount {
+		o := oldCount[l]
+		if n > o {
+			additions += n - o
+		}
+	}
+	// Lines in old but not (fully) in new = deletions
+	for l, o := range oldCount {
+		n := newCount[l]
+		if o > n {
+			deletions += o - n
+		}
+	}
+	return
+}
+
+func readLines(path string) []string {
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	text := strings.TrimSuffix(string(data), "\n")
+	if text == "" {
+		return nil
+	}
+	return strings.Split(text, "\n")
 }
 
 // LoadManifest loads existing manifest from disk.
@@ -209,8 +258,10 @@ const (
 )
 
 type FileChange struct {
-	Path   string `json:"path"`
-	Status string `json:"status"`
+	Path      string `json:"path"`
+	Status    string `json:"status"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
 }
 
 func hashFile(path string) string {
