@@ -1,0 +1,236 @@
+package snapshot
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+const snapDir = ".warp-snapshots"
+
+// Manifest maps relative file paths to their content hashes.
+type Manifest struct {
+	Files map[string]string `json:"files"`
+}
+
+// Engine manages file snapshots for a workspace.
+type Engine struct {
+	workspace string
+	snapPath  string
+	manifest  *Manifest
+}
+
+// NewEngine creates a snapshot engine for the given workspace.
+func NewEngine(workspace string) *Engine {
+	return &Engine{
+		workspace: workspace,
+		snapPath:  filepath.Join(workspace, snapDir),
+		manifest:  &Manifest{Files: make(map[string]string)},
+	}
+}
+
+// Init creates the snapshot directory and saves initial snapshots for all files.
+func (e *Engine) Init(files []string) error {
+	if err := os.MkdirAll(e.snapPath, 0755); err != nil {
+		return fmt.Errorf("create snapshot dir: %w", err)
+	}
+	for _, f := range files {
+		if err := e.snapshotFile(f); err != nil {
+			return fmt.Errorf("snapshot %s: %w", f, err)
+		}
+	}
+	return e.saveManifest()
+}
+
+// AcceptAll re-snapshots all changed files.
+func (e *Engine) AcceptAll(files []string) error {
+	for _, f := range files {
+		if err := e.snapshotFile(f); err != nil {
+			// If file was deleted, remove from manifest
+			if os.IsNotExist(err) {
+				delete(e.manifest.Files, f)
+				os.Remove(e.snapFilePath(f))
+				continue
+			}
+			return err
+		}
+	}
+	return e.saveManifest()
+}
+
+// AcceptFile re-snapshots a single file.
+func (e *Engine) AcceptFile(path string) error {
+	if err := e.snapshotFile(path); err != nil {
+		if os.IsNotExist(err) {
+			delete(e.manifest.Files, path)
+			os.Remove(e.snapFilePath(path))
+			return e.saveManifest()
+		}
+		return err
+	}
+	return e.saveManifest()
+}
+
+// RevertAll restores all files from their snapshots.
+func (e *Engine) RevertAll(files []string) error {
+	for _, f := range files {
+		if err := e.RevertFile(f); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RevertFile restores a single file from its snapshot.
+func (e *Engine) RevertFile(path string) error {
+	snapFile := e.snapFilePath(path)
+	if _, ok := e.manifest.Files[path]; !ok {
+		// File was newly created, delete it
+		e.deleteFromManifest(path)
+		return os.Remove(filepath.Join(e.workspace, path))
+	}
+	data, err := os.ReadFile(snapFile)
+	if err != nil {
+		return fmt.Errorf("read snapshot: %w", err)
+	}
+	targetPath := filepath.Join(e.workspace, path)
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(targetPath, data, 0644)
+}
+
+// Diff returns the diff between current file and snapshot.
+func (e *Engine) Diff(path string) (oldContent, newContent string, err error) {
+	oldData, err := os.ReadFile(e.snapFilePath(path))
+	if err != nil {
+		oldContent = "" // new file
+	} else {
+		oldContent = string(oldData)
+	}
+	newData, err := os.ReadFile(filepath.Join(e.workspace, path))
+	if err != nil {
+		newContent = "" // deleted file
+	} else {
+		newContent = string(newData)
+	}
+	return oldContent, newContent, nil
+}
+
+// HasSnapshot returns true if the engine has an existing manifest with files.
+func (e *Engine) HasSnapshot() bool {
+	return len(e.manifest.Files) > 0
+}
+
+// ChangedFiles returns files that differ from their snapshots.
+func (e *Engine) ChangedFiles(currentFiles []string) []FileChange {
+	currentSet := make(map[string]bool, len(currentFiles))
+	for _, f := range currentFiles {
+		currentSet[f] = true
+	}
+	var changes []FileChange
+	// Modified and new files
+	for _, f := range currentFiles {
+		oldHash, existed := e.manifest.Files[f]
+		if !existed {
+			changes = append(changes, FileChange{Path: f, Status: StatusAdded})
+		} else {
+			newHash := hashFile(filepath.Join(e.workspace, f))
+			if newHash != oldHash {
+				changes = append(changes, FileChange{Path: f, Status: StatusModified})
+			}
+		}
+	}
+	// Deleted files
+	for f := range e.manifest.Files {
+		if !currentSet[f] {
+			changes = append(changes, FileChange{Path: f, Status: StatusDeleted})
+		}
+	}
+	return changes
+}
+
+// LoadManifest loads existing manifest from disk.
+func (e *Engine) LoadManifest() error {
+	data, err := os.ReadFile(filepath.Join(e.snapPath, "manifest.json"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			e.manifest = &Manifest{Files: make(map[string]string)}
+			return nil
+		}
+		return err
+	}
+	e.manifest = &Manifest{}
+	return json.Unmarshal(data, e.manifest)
+}
+
+func (e *Engine) snapshotFile(relPath string) error {
+	src := filepath.Join(e.workspace, relPath)
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	dst := e.snapFilePath(relPath)
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(dst, data, 0644); err != nil {
+		return err
+	}
+	e.manifest.Files[relPath] = hashBytes(data)
+	return nil
+}
+
+func (e *Engine) saveManifest() error {
+	data, err := json.MarshalIndent(e.manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(e.snapPath, "manifest.json"), data, 0644)
+}
+
+func (e *Engine) snapFilePath(relPath string) string {
+	return filepath.Join(e.snapPath, relPath)
+}
+
+func (e *Engine) deleteFromManifest(path string) {
+	delete(e.manifest.Files, path)
+	e.saveManifest()
+}
+
+// FileChange types
+const (
+	StatusAdded    = "added"
+	StatusModified = "modified"
+	StatusDeleted  = "deleted"
+)
+
+type FileChange struct {
+	Path   string `json:"path"`
+	Status string `json:"status"`
+}
+
+func hashFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return hashBytes(data)
+}
+
+func hashBytes(data []byte) string {
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
+}
+
+// ReadFileContent reads a file from workspace.
+func ReadFileContent(workspace, relPath string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(workspace, relPath))
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
