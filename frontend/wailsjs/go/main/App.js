@@ -14,6 +14,10 @@ export function CloseTerminal(arg1) {
   return window['go']['main']['App']['CloseTerminal'](arg1);
 }
 
+export function CreateSSHTerminal(arg1) {
+  return window['go']['main']['App']['CreateSSHTerminal'](arg1);
+}
+
 export function CreateTerminal() {
   return window['go']['main']['App']['CreateTerminal']();
 }
@@ -28,6 +32,14 @@ export function GetFileContent(arg1) {
 
 export function GetFileDiff(arg1) {
   return window['go']['main']['App']['GetFileDiff'](arg1);
+}
+
+export function GetRemoteWorkspaces() {
+  return window['go']['main']['App']['GetRemoteWorkspaces']();
+}
+
+export function GetSSHConfigs() {
+  return window['go']['main']['App']['GetSSHConfigs']();
 }
 
 export function GetStartupWorkspace() {
@@ -46,8 +58,24 @@ export function OpenInNewWindow(arg1) {
   return window['go']['main']['App']['OpenInNewWindow'](arg1);
 }
 
+export function OpenRemoteWorkspace(arg1, arg2) {
+  return window['go']['main']['App']['OpenRemoteWorkspace'](arg1, arg2);
+}
+
 export function OpenWorkspace(arg1) {
   return window['go']['main']['App']['OpenWorkspace'](arg1);
+}
+
+export function RefreshRemoteWorkspace() {
+  return window['go']['main']['App']['RefreshRemoteWorkspace']();
+}
+
+export function RemoveRemoteWorkspace(arg1) {
+  return window['go']['main']['App']['RemoveRemoteWorkspace'](arg1);
+}
+
+export function RemoveSSHConfig(arg1) {
+  return window['go']['main']['App']['RemoveSSHConfig'](arg1);
 }
 
 export function RemoveWorkspaceFromHistory(arg1) {
@@ -64,6 +92,14 @@ export function RevertAll() {
 
 export function RevertFile(arg1) {
   return window['go']['main']['App']['RevertFile'](arg1);
+}
+
+export function SaveRemoteWorkspace(arg1) {
+  return window['go']['main']['App']['SaveRemoteWorkspace'](arg1);
+}
+
+export function SaveSSHConfig(arg1) {
+  return window['go']['main']['App']['SaveSSHConfig'](arg1);
 }
 
 export function SelectWorkspace() {

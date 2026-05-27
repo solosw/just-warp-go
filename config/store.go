@@ -80,6 +80,135 @@ func (s *Store) SaveWorkspace(wsPath string) error {
 	return os.WriteFile(filepath.Join(s.dir, "workspaces.json"), data, 0644)
 }
 
+// ─── SSH Configs ────────────────────────────────────
+
+// SSHConfig represents a saved SSH connection.
+type SSHConfig struct {
+	Name     string `json:"name"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	User     string `json:"user"`
+	Password string `json:"password"`
+	KeyPath  string `json:"keyPath"`
+}
+
+// RemoteWorkspaceEntry represents a saved remote workspace mirror mapping.
+type RemoteWorkspaceEntry struct {
+	Name       string `json:"name"`
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	User       string `json:"user"`
+	RemotePath string `json:"remotePath"`
+	CachePath  string `json:"cachePath"`
+}
+
+func (s *Store) LoadSSHConfigs() ([]SSHConfig, error) {
+	path := filepath.Join(s.dir, "ssh-configs.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var cfgs []SSHConfig
+	if err := json.Unmarshal(data, &cfgs); err != nil {
+		return nil, err
+	}
+	return cfgs, nil
+}
+
+func (s *Store) SaveSSHConfig(cfg SSHConfig) error {
+	cfgs, _ := s.LoadSSHConfigs()
+	// Update if same name/host, else append
+	found := false
+	for i, c := range cfgs {
+		if c.Name == cfg.Name {
+			cfgs[i] = cfg
+			found = true
+			break
+		}
+	}
+	if !found {
+		cfgs = append(cfgs, cfg)
+	}
+	data, err := json.MarshalIndent(cfgs, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(s.dir, "ssh-configs.json"), data, 0644)
+}
+
+func (s *Store) RemoveSSHConfig(name string) error {
+	cfgs, _ := s.LoadSSHConfigs()
+	filtered := make([]SSHConfig, 0, len(cfgs))
+	for _, c := range cfgs {
+		if c.Name != name {
+			filtered = append(filtered, c)
+		}
+	}
+	data, err := json.MarshalIndent(filtered, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(s.dir, "ssh-configs.json"), data, 0644)
+}
+
+// ─── Remote Workspaces ───────────────────────────────
+
+func (s *Store) LoadRemoteWorkspaces() ([]RemoteWorkspaceEntry, error) {
+	path := filepath.Join(s.dir, "remote-workspaces.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var items []RemoteWorkspaceEntry
+	if err := json.Unmarshal(data, &items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (s *Store) SaveRemoteWorkspace(item RemoteWorkspaceEntry) error {
+	items, _ := s.LoadRemoteWorkspaces()
+	found := false
+	for i, it := range items {
+		if it.Name == item.Name {
+			items[i] = item
+			found = true
+			break
+		}
+	}
+	if !found {
+		items = append(items, item)
+	}
+	data, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(s.dir, "remote-workspaces.json"), data, 0644)
+}
+
+func (s *Store) RemoveRemoteWorkspace(name string) error {
+	items, _ := s.LoadRemoteWorkspaces()
+	filtered := make([]RemoteWorkspaceEntry, 0, len(items))
+	for _, it := range items {
+		if it.Name != name {
+			filtered = append(filtered, it)
+		}
+	}
+	data, err := json.MarshalIndent(filtered, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(s.dir, "remote-workspaces.json"), data, 0644)
+}
+
+// ─── Workspace ──────────────────────────────────────
+
 // RemoveWorkspace removes a workspace from history.
 func (s *Store) RemoveWorkspace(wsPath string) error {
 	entries, err := s.LoadWorkspaces()

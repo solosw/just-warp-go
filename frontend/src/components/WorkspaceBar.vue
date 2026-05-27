@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
+import RemoteWorkspaceDialog from './RemoteWorkspaceDialog.vue'
 
 const ws = useWorkspaceStore()
 const showDropdown = ref(false)
+const showRemoteDialog = ref(false)
 const dropdownRef = ref<HTMLElement>()
 
 function toggleDropdown() {
@@ -25,13 +27,26 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 
 async function selectFromHistory(path: string) {
   closeDropdown()
-  // If selecting the same workspace, stay; otherwise open in new window
   if (ws.info?.path === path) return
   if (ws.hasWorkspace) {
     await ws.openInNewWindow(path)
   } else {
     await ws.openWorkspace(path)
   }
+}
+
+async function openRemote(entry: any) {
+  closeDropdown()
+  await ws.openRemoteWorkspace(entry)
+}
+
+async function removeRemote(name: string, e: Event) {
+  e.stopPropagation()
+  await ws.removeRemote(name)
+}
+
+function infoMatchesRemote(entry: any) {
+  return ws.info?.path?.includes(entry.name + ':')
 }
 
 async function removeHistory(path: string, e: Event) {
@@ -50,30 +65,41 @@ async function removeHistory(path: string, e: Event) {
       </button>
 
       <div v-if="showDropdown" class="dropdown-menu">
-        <div class="dropdown-header">工作区历史</div>
-        <div v-if="ws.history.length === 0" class="dropdown-empty">
-          暂无历史工作区
-        </div>
-        <div
-          v-for="entry in ws.history"
-          :key="entry.path"
-          class="dropdown-item"
-          :class="{ active: ws.info?.path === entry.path }"
-          @click="selectFromHistory(entry.path)"
-        >
-          <span class="item-name">{{ entry.name }}</span>
+        <div class="dropdown-header">本地工作区</div>
+        <div v-if="ws.history.length === 0" class="dropdown-empty">暂无</div>
+        <div v-for="entry in ws.history" :key="'l'+entry.path" class="dropdown-item"
+          :class="{ active: !ws.info?.isRemote && ws.info?.path === entry.path }"
+          @click="selectFromHistory(entry.path)">
+          <span class="item-name">&#x1F4C1; {{ entry.name }}</span>
           <span class="item-path">{{ entry.path }}</span>
           <button class="item-remove" @click="(e: Event) => removeHistory(entry.path, e)" title="移除">&times;</button>
         </div>
+
+        <div class="dropdown-header" style="margin-top:4px">远程工作区</div>
+        <div v-if="ws.remoteList.length === 0" class="dropdown-empty">暂无</div>
+        <div v-for="entry in ws.remoteList" :key="'r'+entry.name" class="dropdown-item"
+          :class="{ active: ws.info?.isRemote && infoMatchesRemote(entry) }"
+          @click="openRemote(entry)">
+          <span class="item-name">&#x1F310; {{ entry.name }}</span>
+          <span class="item-path">{{ entry.user }}@{{ entry.host }}:{{ entry.remotePath }}</span>
+          <button class="item-remove" @click="(e: Event) => removeRemote(entry.name, e)" title="移除">&times;</button>
+        </div>
+
+        <div class="dropdown-footer" @click="showRemoteDialog = true; closeDropdown()">
+          + 添加远程服务器...
+        </div>
         <div class="dropdown-footer" @click="ws.selectWorkspace(); closeDropdown()">
-          + 浏览文件夹...
+          + 浏览本地文件夹...
         </div>
       </div>
     </div>
 
     <div v-if="ws.hasWorkspace" class="workspace-info">
+      <span v-if="ws.info?.isRemote" class="remote-badge">&#x1F310; 远程</span>
+      <button v-if="ws.info?.isRemote" class="btn-refresh" @click="ws.refreshRemote()" title="刷新远程工作区">&#x21BB;</button>
       <span class="file-count">{{ ws.info?.fileCount }} 个文件</span>
     </div>
+    <RemoteWorkspaceDialog v-if="showRemoteDialog" @close="showRemoteDialog = false" />
   </div>
 </template>
 
@@ -202,4 +228,21 @@ async function removeHistory(path: string, e: Event) {
   padding: 2px 8px;
   border-radius: 10px;
 }
+.remote-badge {
+  color: #58a6ff;
+  font-size: 11px;
+  margin-right: 4px;
+}
+.btn-refresh {
+  background: none;
+  border: 1px solid #444;
+  color: #58a6ff;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 6px;
+  border-radius: 3px;
+  margin-right: 6px;
+  line-height: 20px;
+}
+.btn-refresh:hover { background: #1a3a5c; }
 </style>

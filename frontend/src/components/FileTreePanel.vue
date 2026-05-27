@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
-import { useTerminalStore } from '../stores/terminal'
 
 const ws = useWorkspaceStore()
-const ts = useTerminalStore()
 
 interface TreeNode {
   name: string
@@ -68,7 +66,7 @@ function handleClick(node: TreeNode) {
       expanded.value.add(node.path)
     }
   } else {
-    ts.openFile(node.path)
+    ws.openPreviewFile(node.path)
   }
 }
 

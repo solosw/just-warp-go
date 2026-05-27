@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Manager manages multiple terminal sessions.
+// Manager manages multiple terminal sessions (local and SSH).
 type Manager struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
@@ -20,10 +20,10 @@ func NewManager() *Manager {
 	}
 }
 
-// Create starts a new terminal session and returns its ID.
+// Create starts a new local terminal session and returns its ID.
 func (m *Manager) Create() (string, error) {
 	id := uuid.New().String()[:8]
-	sess, err := NewSession(id)
+	sess, err := newLocalSession(id)
 	if err != nil {
 		return "", fmt.Errorf("create terminal: %w", err)
 	}
@@ -31,6 +31,29 @@ func (m *Manager) Create() (string, error) {
 	m.sessions[id] = sess
 	m.mu.Unlock()
 	return id, nil
+}
+
+// CreateSSH starts a new SSH terminal session and returns its ID.
+func (m *Manager) CreateSSH(cfg SSHConfig) (string, error) {
+	id := uuid.New().String()[:8]
+	sess, err := newSSHSession(id, cfg)
+	if err != nil {
+		return "", fmt.Errorf("create ssh terminal: %w", err)
+	}
+	m.mu.Lock()
+	m.sessions[id] = sess
+	m.mu.Unlock()
+	return id, nil
+}
+
+// SSHConfig holds SSH connection parameters.
+type SSHConfig struct {
+	Name     string `json:"name"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	User     string `json:"user"`
+	Password string `json:"password"`
+	KeyPath  string `json:"keyPath"`
 }
 
 // Get returns a session by ID.

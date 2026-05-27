@@ -277,6 +277,43 @@ func hashBytes(data []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
+// HashBytes returns the hex SHA-256 of data (public).
+func HashBytes(data []byte) string {
+	return hashBytes(data)
+}
+
+// InitHashOnly stores hashes without copying files (for remote workspaces).
+func (e *Engine) InitHashOnly(hashes map[string]string) error {
+	if err := os.MkdirAll(e.snapPath, 0755); err != nil {
+		return err
+	}
+	for path, hash := range hashes {
+		e.manifest.Files[path] = hash
+	}
+	return e.saveManifest()
+}
+
+// SetStorageDir creates the snapshot directory with a custom-basedir prefix.
+// Used for remote workspaces where .warp-snapshots lives in config dir.
+func (e *Engine) SetStorageDir() error {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return err
+	}
+	e.snapPath = filepath.Join(dir, "just-warp-go", "snapshots", e.workspace)
+	e.workspace = e.snapPath // manifest reads from snapPath
+	return os.MkdirAll(e.snapPath, 0755)
+}
+
+// GetSnapshotContent returns the raw bytes of a snapshot file (if it exists).
+func (e *Engine) GetSnapshotContent(path string) []byte {
+	data, err := os.ReadFile(e.snapFilePath(path))
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
 // ReadFileContent reads a file from workspace.
 func ReadFileContent(workspace, relPath string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(workspace, relPath))

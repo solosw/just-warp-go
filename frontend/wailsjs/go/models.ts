@@ -1,5 +1,49 @@
 export namespace config {
 	
+	export class RemoteWorkspaceEntry {
+	    name: string;
+	    host: string;
+	    port: number;
+	    user: string;
+	    remotePath: string;
+	    cachePath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteWorkspaceEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.user = source["user"];
+	        this.remotePath = source["remotePath"];
+	        this.cachePath = source["cachePath"];
+	    }
+	}
+	export class SSHConfig {
+	    name: string;
+	    host: string;
+	    port: number;
+	    user: string;
+	    password: string;
+	    keyPath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SSHConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.user = source["user"];
+	        this.password = source["password"];
+	        this.keyPath = source["keyPath"];
+	    }
+	}
 	export class WorkspaceEntry {
 	    path: string;
 	    name: string;
@@ -21,11 +65,34 @@ export namespace config {
 
 export namespace main {
 	
+	export class SSHConfig {
+	    name: string;
+	    host: string;
+	    port: number;
+	    user: string;
+	    password: string;
+	    keyPath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SSHConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.user = source["user"];
+	        this.password = source["password"];
+	        this.keyPath = source["keyPath"];
+	    }
+	}
 	export class WorkspaceInfo {
 	    path: string;
 	    name: string;
 	    fileCount: number;
 	    files: string[];
+	    isRemote: boolean;
 	    changedFiles: snapshot.FileChange[];
 	
 	    static createFrom(source: any = {}) {
@@ -38,6 +105,7 @@ export namespace main {
 	        this.name = source["name"];
 	        this.fileCount = source["fileCount"];
 	        this.files = source["files"];
+	        this.isRemote = source["isRemote"];
 	        this.changedFiles = this.convertValues(source["changedFiles"], snapshot.FileChange);
 	    }
 	

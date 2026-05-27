@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useTerminalStore } from '../stores/terminal'
 import TerminalView from './TerminalView.vue'
-import FileView from './FileView.vue'
+import SSHConnectDialog from './SSHConnectDialog.vue'
 
 const store = useTerminalStore()
+const showSSHDialog = ref(false)
 
 const gridCols = computed(() => {
   const n = store.tabs.length
@@ -24,11 +25,12 @@ const gridCols = computed(() => {
         :class="{ active: tab.id === store.activeTabId && store.layoutMode === 'tabs' }"
         @click="store.setActive(tab.id)"
       >
-        <span class="tab-type">{{ tab.type === 'terminal' ? '>' : '&#x1F4C4;' }}</span>
+        <span class="tab-type">></span>
         <span>{{ tab.title }}</span>
         <button class="tab-close" @click.stop="store.closeTab(tab.id)">×</button>
       </div>
       <button class="tab-new" @click="store.createTerminal()">+</button>
+      <button class="tab-ssh" @click="showSSHDialog = true" title="SSH连接">&#x1F50C;</button>
       <div class="tab-spacer"></div>
       <button
         class="btn-layout"
@@ -39,7 +41,6 @@ const gridCols = computed(() => {
       </button>
     </div>
 
-    <!-- Tab body -->
     <div v-if="store.tabs.length === 0" class="no-tabs">
       <p v-if="store.error" class="error-msg">{{ store.error }}</p>
       <p v-else>点击 + 创建终端</p>
@@ -49,13 +50,11 @@ const gridCols = computed(() => {
     <div v-else-if="store.layoutMode === 'grid'" class="grid-body" :style="{ gridTemplateColumns: `repeat(${gridCols}, 1fr)` }">
       <div v-for="tab in store.tabs" :key="tab.id" class="grid-cell">
         <div class="grid-cell-header">
-          <span class="grid-cell-type">{{ tab.type === 'terminal' ? '>' : '&#x1F4C4;' }}</span>
           <span class="grid-cell-title">{{ tab.title }}</span>
           <button class="grid-cell-close" @click="store.closeTab(tab.id)">×</button>
         </div>
         <div class="grid-cell-body">
-          <TerminalView v-if="tab.type === 'terminal'" :tab-id="tab.id" />
-          <FileView v-else-if="tab.type === 'file' && tab.filePath" :file-path="tab.filePath" />
+          <TerminalView :tab-id="tab.id" />
         </div>
       </div>
     </div>
@@ -64,11 +63,15 @@ const gridCols = computed(() => {
     <div v-else class="tab-body">
       <template v-for="tab in store.tabs" :key="tab.id">
         <div v-show="tab.id === store.activeTabId" class="tab-content">
-          <TerminalView v-if="tab.type === 'terminal'" :tab-id="tab.id" />
-          <FileView v-else-if="tab.type === 'file' && tab.filePath" :file-path="tab.filePath" />
+          <TerminalView :tab-id="tab.id" />
         </div>
       </template>
     </div>
+    <SSHConnectDialog
+      v-if="showSSHDialog"
+      @close="showSSHDialog = false"
+      @connected="(id, title) => { store.addSSHTab(id, title); showSSHDialog = false }"
+    />
   </div>
 </template>
 
@@ -102,10 +105,7 @@ const gridCols = computed(() => {
   white-space: nowrap;
   user-select: none;
 }
-.tab.active {
-  background: #161618;
-  color: #fff;
-}
+.tab.active { background: #161618; color: #fff; }
 .tab:hover { background: #2a2a2e; }
 .tab-type { font-size: 10px; flex-shrink: 0; }
 .tab-close {
@@ -127,6 +127,11 @@ const gridCols = computed(() => {
   padding: 0 10px;
 }
 .tab-new:hover { color: #fff; }
+.tab-ssh {
+  background: none; border: none; color: #888; cursor: pointer;
+  font-size: 12px; padding: 0 8px;
+}
+.tab-ssh:hover { color: #58a6ff; }
 .tab-spacer { flex: 1; }
 .btn-layout {
   background: none;
@@ -139,8 +144,6 @@ const gridCols = computed(() => {
   line-height: 22px;
 }
 .btn-layout:hover { color: #fff; border-color: #666; }
-
-/* Tab layout */
 .tab-body {
   flex: 1;
   display: flex;
@@ -163,8 +166,6 @@ const gridCols = computed(() => {
   display: flex;
   overflow: hidden;
 }
-
-/* Grid layout */
 .grid-body {
   flex: 1;
   display: grid;
@@ -187,12 +188,7 @@ const gridCols = computed(() => {
   border-bottom: 1px solid #2a2a2e;
   height: 24px;
 }
-.grid-cell-type { font-size: 10px; flex-shrink: 0; }
-.grid-cell-title {
-  flex: 1;
-  font-size: 11px;
-  color: #888;
-}
+.grid-cell-title { flex: 1; font-size: 11px; color: #888; }
 .grid-cell-close {
   background: none;
   border: none;
@@ -203,16 +199,5 @@ const gridCols = computed(() => {
   line-height: 1;
 }
 .grid-cell-close:hover { color: #f44336; }
-.grid-cell-body {
-  flex: 1;
-  overflow: hidden;
-}
-.grid-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #555;
-  font-size: 13px;
-  grid-column: 1 / -1;
-}
+.grid-cell-body { flex: 1; overflow: hidden; }
 </style>

@@ -1,66 +1,60 @@
 package terminal
 
 import (
-	"fmt"
 	"os/exec"
 	"runtime"
 
 	"github.com/UserExistsError/conpty"
 )
 
-// Session represents a single PTY terminal session.
+// terminalIO is the internal interface for Read/Write/Resize/Close operations.
+type terminalIO interface {
+	Read([]byte) (int, error)
+	Write([]byte) (int, error)
+	Resize(cols, rows uint16) error
+	Close() error
+}
+
+// Session represents a single terminal session (local or SSH).
 type Session struct {
-	ID   string
+	ID string
+	io terminalIO
+}
+
+// newLocalSession creates a local ConPTY session.
+func newLocalSession(id string) (*Session, error) {
+	shell := "bash"
+	if runtime.GOOS == "windows" {
+		if _, err := exec.LookPath("powershell.exe"); err == nil {
+			shell = `powershell.exe -NoLogo -NoExit`
+		} else {
+			shell = `cmd.exe`
+		}
+	}
+	c, err := conpty.Start(shell)
+	if err != nil {
+		return nil, err
+	}
+	return &Session{ID: id, io: &localIO{cpty: c}}, nil
+}
+
+type localIO struct {
 	cpty *conpty.ConPty
 }
 
-// NewSession creates a new terminal session.
-func NewSession(id string) (*Session, error) {
-	shell := shellCommand()
+func (l *localIO) Read(buf []byte) (int, error)  { return l.cpty.Read(buf) }
+func (l *localIO) Write(data []byte) (int, error) { return l.cpty.Write(data) }
+func (l *localIO) Resize(cols, rows uint16) error { return l.cpty.Resize(int(cols), int(rows)) }
+func (l *localIO) Close() error                   { return l.cpty.Close() }
 
-	c, err := conpty.Start(shell)
-	if err != nil {
-		return nil, fmt.Errorf("conpty start %q: %w", shell, err)
-	}
+// Read reads output from the session.
+func (s *Session) Read(buf []byte) (int, error) { return s.io.Read(buf) }
 
-	return &Session{
-		ID:   id,
-		cpty: c,
-	}, nil
-}
-
-func shellCommand() string {
-	if runtime.GOOS == "windows" {
-		if _, err := exec.LookPath("powershell.exe"); err == nil {
-			return `powershell.exe -NoLogo -NoExit`
-		}
-		return `cmd.exe`
-	}
-	return `bash`
-}
-
-// Read reads output from the PTY.
-func (s *Session) Read(buf []byte) (int, error) {
-	return s.cpty.Read(buf)
-}
-
-// Write writes input to the PTY.
-func (s *Session) Write(data []byte) (int, error) {
-	return s.cpty.Write(data)
-}
+// Write writes input to the session.
+func (s *Session) Write(data []byte) (int, error) { return s.io.Write(data) }
 
 // Resize changes the terminal window size.
-func (s *Session) Resize(rows, cols uint16) error {
-	return s.cpty.Resize(int(cols), int(rows))
-}
+func (s *Session) Resize(rows, cols uint16) error { return s.io.Resize(cols, rows) }
 
 // Close terminates the session.
-func (s *Session) Close() error {
-	return s.cpty.Close()
-}
-
-// IsRunning checks if the process is still running.
-func (s *Session) IsRunning() bool {
-	return false // simplified; conpty handles lifecycle
-}
-
+func (s *Session) Close() error { return s.io.Close() }
