@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"fmt"
 	"os/exec"
 	"runtime"
 
@@ -21,11 +22,13 @@ type Session struct {
 	io terminalIO
 }
 
-// newLocalSession creates a local ConPTY session.
-func newLocalSession(id string) (*Session, error) {
+// newLocalSession creates a local ConPTY session, optionally at the given working directory.
+func newLocalSession(id, cwd string) (*Session, error) {
 	shell := "bash"
 	if runtime.GOOS == "windows" {
-		if _, err := exec.LookPath("powershell.exe"); err == nil {
+		if cwd != "" {
+			shell = fmt.Sprintf(`powershell.exe -NoLogo -NoExit -WorkingDirectory "%s"`, cwd)
+		} else if _, err := exec.LookPath("powershell.exe"); err == nil {
 			shell = `powershell.exe -NoLogo -NoExit`
 		} else {
 			shell = `cmd.exe`

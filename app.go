@@ -23,6 +23,75 @@ import (
 	"just-warp-go/watcher"
 )
 
+// remoteFileEntry holds file metadata for remote workspaces.
+// Used for lightweight change detection without downloading file content.
+type remoteFileEntry struct {
+	path    string
+	size    int64
+	modTime time.Time
+}
+
+func (e remoteFileEntry) fingerprint() string {
+	return fmt.Sprintf("%d|%d", e.size, e.modTime.Unix())
+}
+
+func entriesToPaths(entries []remoteFileEntry) []string {
+	paths := make([]string, len(entries))
+	for i, e := range entries {
+		paths[i] = e.path
+	}
+	return paths
+}
+
+func entriesToFingerprints(entries []remoteFileEntry) map[string]string {
+	m := make(map[string]string, len(entries))
+	for _, e := range entries {
+		m[e.path] = e.fingerprint()
+	}
+	return m
+}
+
+// Remote file filters — mirrors scanner/scanner.go logic without file content access.
+var remoteSkipDirs = map[string]bool{
+	".git": true, "node_modules": true, ".warp-snapshots": true,
+	"dist": true, "build": true, ".next": true, "__pycache__": true,
+	"target": true, ".cache": true, "vendor": true, ".yarn": true,
+	".pnpm-store": true, "bower_components": true, ".turbo": true,
+	".nuxt": true, ".output": true, "coverage": true, ".nyc_output": true,
+}
+
+var remoteBinaryExts = map[string]bool{
+	".exe": true, ".dll": true, ".so": true, ".dylib": true,
+	".zip": true, ".tar": true, ".gz": true, ".bz2": true, ".7z": true, ".rar": true,
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".bmp": true, ".ico": true, ".webp": true, ".svg": true,
+	".mp3": true, ".mp4": true, ".avi": true, ".mov": true, ".mkv": true, ".wmv": true, ".flv": true,
+	".woff": true, ".woff2": true, ".ttf": true, ".otf": true, ".eot": true,
+	".pdf": true, ".doc": true, ".docx": true, ".xls": true, ".xlsx": true, ".ppt": true, ".pptx": true,
+	".o": true, ".obj": true, ".a": true, ".lib": true,
+	".class": true, ".pyc": true, ".pyo": true,
+	".jar": true, ".war": true, ".ear": true,
+	".db": true, ".sqlite": true, ".sqlite3": true,
+	".wasm": true,
+}
+
+func isRemoteNoise(relPath string, isDir bool) bool {
+	name := path.Base(relPath)
+	if isDir {
+		if remoteSkipDirs[name] || (strings.HasPrefix(name, ".") && name != ".gitignore") {
+			return true
+		}
+	}
+	// Check if any parent segment is a noise/hidden dir
+	for _, seg := range strings.Split(relPath, "/") {
+		if remoteSkipDirs[seg] || (strings.HasPrefix(seg, ".") && seg != ".." && seg != "." && seg != ".gitignore") {
+			return true
+		}
+	}
+	// Check binary extension
+	ext := strings.ToLower(path.Ext(relPath))
+	return remoteBinaryExts[ext]
+}
+
 // App is the main application struct with bound methods.
 type App struct {
 	ctx              context.Context
@@ -32,18 +101,19 @@ type App struct {
 	isRemote         bool
 
 	// Remote connection (lifetime = workspace session)
-	remoteClient  *ssh.Client
-	remoteSFTP    *sftp.Client
-	remotePath    string
-	remoteSSHCfg  terminal.SSHConfig // saved for auto-creating SSH terminals
+	remoteClient *ssh.Client
+	remoteSFTP   *sftp.Client
+	remotePath   string
+	remoteSSHCfg terminal.SSHConfig // saved for auto-creating SSH terminals
 
 	snapEng  *snapshot.Engine
 	termMgr  *terminal.Manager
 	fsw      *watcher.Watcher
 	cfgStore *config.Store
 
-	scannedFiles []string
-	mu           sync.Mutex
+	scannedFiles         []string
+	scannedRemoteEntries []remoteFileEntry
+	mu                   sync.Mutex
 }
 
 func NewApp() *App {
@@ -91,16 +161,17 @@ func (a *App) closeRemote() {
 	}
 	a.isRemote = false
 	a.remotePath = ""
+	a.scannedRemoteEntries = nil
 }
 
 // ─── Workspace ───────────────────────────────────────
 
 type WorkspaceInfo struct {
-	Path         string               `json:"path"`
-	Name         string               `json:"name"`
-	FileCount    int                  `json:"fileCount"`
-	Files        []string             `json:"files"`
-	IsRemote     bool                 `json:"isRemote"`
+	Path         string                `json:"path"`
+	Name         string                `json:"name"`
+	FileCount    int                   `json:"fileCount"`
+	Files        []string              `json:"files"`
+	IsRemote     bool                  `json:"isRemote"`
 	ChangedFiles []snapshot.FileChange `json:"changedFiles"`
 }
 
@@ -158,6 +229,15 @@ func (a *App) OpenWorkspace(path string) (*WorkspaceInfo, error) {
 	return info, nil
 }
 
+// RemoteDirEntry represents a single directory entry on the remote server.
+type RemoteDirEntry struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	IsDir   bool   `json:"isDir"`
+	Size    int64  `json:"size"`
+	ModTime int64  `json:"modTime"`
+}
+
 // ─── Remote Workspace (SFTP Direct) ──────────────────
 
 func (a *App) GetRemoteWorkspaces() ([]config.RemoteWorkspaceEntry, error) {
@@ -172,6 +252,45 @@ func (a *App) SaveRemoteWorkspace(entry config.RemoteWorkspaceEntry) error {
 		return fmt.Errorf("配置存储不可用")
 	}
 	return a.cfgStore.SaveRemoteWorkspace(entry)
+}
+
+// ListRemoteDir lists entries in a single remote directory (lazy loading).
+func (a *App) ListRemoteDir(dir string) ([]RemoteDirEntry, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.isRemote || a.remoteSFTP == nil {
+		return nil, fmt.Errorf("当前不是远程工作区")
+	}
+	remoteDir := path.Join(a.remotePath, dir)
+	if dir == "" {
+		remoteDir = a.remotePath
+	}
+	infos, err := a.remoteSFTP.ReadDir(remoteDir)
+	if err != nil {
+		return nil, fmt.Errorf("读取远程目录失败: %w", err)
+	}
+	var entries []RemoteDirEntry
+	if dir != "" {
+		parent := path.Dir(dir)
+		if parent == "." {
+			parent = ""
+		}
+		entries = append(entries, RemoteDirEntry{Name: "..", Path: parent, IsDir: true})
+	}
+	for _, info := range infos {
+		entryPath := path.Join(dir, info.Name())
+		if isRemoteNoise(entryPath, info.IsDir()) {
+			continue
+		}
+		entries = append(entries, RemoteDirEntry{
+			Name:    info.Name(),
+			Path:    entryPath,
+			IsDir:   info.IsDir(),
+			Size:    info.Size(),
+			ModTime: info.ModTime().Unix(),
+		})
+	}
+	return entries, nil
 }
 
 func (a *App) RemoveRemoteWorkspace(name string) error {
@@ -202,6 +321,19 @@ func (a *App) OpenRemoteWorkspace(cfg SSHConfig, remotePath string) (*WorkspaceI
 	if cfg.Port == 0 {
 		cfg.Port = 22
 	}
+	// Look up saved credentials if re-opening from history (RemoteWorkspaceEntry has no password/keyPath)
+	if cfg.Password == "" && cfg.KeyPath == "" && a.cfgStore != nil {
+		configs, err := a.cfgStore.LoadSSHConfigs()
+		if err == nil {
+			for _, c := range configs {
+				if c.Name == cfg.Name {
+					cfg.Password = c.Password
+					cfg.KeyPath = c.KeyPath
+					break
+				}
+			}
+		}
+	}
 	tCfg := terminal.SSHConfig{
 		Name: cfg.Name, Host: cfg.Host, Port: cfg.Port,
 		User: cfg.User, Password: cfg.Password, KeyPath: cfg.KeyPath,
@@ -227,12 +359,22 @@ func (a *App) OpenRemoteWorkspace(cfg SSHConfig, remotePath string) (*WorkspaceI
 		return nil, fmt.Errorf("SFTP初始化失败: %w", err)
 	}
 
-	// List remote files
-	remoteFiles, err := a.listRemoteFiles(sftpClient, remotePath)
+	// List only root directory for initial display (lazy subdirs)
+	rootInfos, err := sftpClient.ReadDir(remotePath)
 	if err != nil {
 		sftpClient.Close()
 		client.Close()
 		return nil, fmt.Errorf("扫描远程目录失败: %w", err)
+	}
+
+	// Build root-level entries from ReadDir
+	rootEntries := make([]remoteFileEntry, 0, len(rootInfos))
+	for _, info := range rootInfos {
+		rootEntries = append(rootEntries, remoteFileEntry{
+			path:    info.Name(),
+			size:    info.Size(),
+			modTime: info.ModTime(),
+		})
 	}
 
 	a.remoteClient = client
@@ -241,10 +383,10 @@ func (a *App) OpenRemoteWorkspace(cfg SSHConfig, remotePath string) (*WorkspaceI
 	a.isRemote = true
 	a.workspace = cfg.Name + ":" + remotePath
 	a.remoteSSHCfg = tCfg
-	a.scannedFiles = remoteFiles
+	a.scannedRemoteEntries = rootEntries
+	a.scannedFiles = entriesToPaths(rootEntries)
 
 	// Manifest stored in config dir (hash-only, no file copies)
-	// Use a workspace identifier derived from host+path
 	wsID := sanitizeID(cfg.Host + "_" + remotePath)
 	a.snapEng = snapshot.NewEngine(wsID)
 	if err := a.snapEng.SetStorageDir(); err != nil {
@@ -254,15 +396,7 @@ func (a *App) OpenRemoteWorkspace(cfg SSHConfig, remotePath string) (*WorkspaceI
 		return nil, err
 	}
 	if !a.snapEng.HasSnapshot() {
-		// Init with in-memory hashes (read remote files)
-		hashes := make(map[string]string)
-		for _, f := range remoteFiles {
-			h, err := a.readRemoteHash(f)
-			if err != nil {
-				continue
-			}
-			hashes[f] = h
-		}
+		hashes := entriesToFingerprints(rootEntries)
 		if err := a.snapEng.InitHashOnly(hashes); err != nil {
 			return nil, err
 		}
@@ -290,18 +424,19 @@ func (a *App) RefreshRemoteWorkspace() (*WorkspaceInfo, error) {
 	if !a.isRemote || a.remoteSFTP == nil {
 		return nil, fmt.Errorf("当前不是远程工作区")
 	}
-	files, err := a.listRemoteFiles(a.remoteSFTP, a.remotePath)
+	entries, err := a.listRemoteFiles(a.remoteSFTP, a.remotePath)
 	if err != nil {
 		return nil, err
 	}
-	a.scannedFiles = files
+	a.scannedRemoteEntries = entries
+	a.scannedFiles = entriesToPaths(entries)
 	info := a.makeWorkspaceInfo()
 	a.emitChanges()
 	return info, nil
 }
 
-func (a *App) listRemoteFiles(c *sftp.Client, root string) ([]string, error) {
-	var files []string
+func (a *App) listRemoteFiles(c *sftp.Client, root string) ([]remoteFileEntry, error) {
+	var entries []remoteFileEntry
 	w := c.Walk(root)
 	for w.Step() {
 		if w.Err() != nil {
@@ -313,12 +448,16 @@ func (a *App) listRemoteFiles(c *sftp.Client, root string) ([]string, error) {
 		}
 		rel := strings.TrimPrefix(path.Clean(w.Path()), path.Clean(root))
 		rel = strings.TrimPrefix(rel, "/")
-		if rel == "" {
+		if rel == "" || isRemoteNoise(rel, false) {
 			continue
 		}
-		files = append(files, filepath.ToSlash(rel))
+		entries = append(entries, remoteFileEntry{
+			path:    filepath.ToSlash(rel),
+			size:    s.Size(),
+			modTime: s.ModTime(),
+		})
 	}
-	return files, nil
+	return entries, nil
 }
 
 func (a *App) readRemoteFile(relPath string) ([]byte, error) {
@@ -364,7 +503,12 @@ func (a *App) GetWorkspaceInfo() *WorkspaceInfo {
 }
 
 func (a *App) makeWorkspaceInfo() *WorkspaceInfo {
-	changes := a.snapEng.ChangedFiles(a.scannedFiles)
+	var changes []snapshot.FileChange
+	if a.isRemote {
+		changes = a.snapEng.ChangedFilesByHash(entriesToFingerprints(a.scannedRemoteEntries))
+	} else {
+		changes = a.snapEng.ChangedFiles(a.scannedFiles)
+	}
 	name := a.workspace
 	for i := len(name) - 1; i >= 0; i-- {
 		if name[i] == '\\' || name[i] == '/' {
@@ -397,7 +541,12 @@ func (a *App) onFileChanged() {
 	if a.snapEng == nil {
 		return
 	}
-	changes := a.snapEng.ChangedFiles(a.scannedFiles)
+	var changes []snapshot.FileChange
+	if a.isRemote {
+		changes = a.snapEng.ChangedFilesByHash(entriesToFingerprints(a.scannedRemoteEntries))
+	} else {
+		changes = a.snapEng.ChangedFiles(a.scannedFiles)
+	}
 	runtime.EventsEmit(a.ctx, "file-changes", changes)
 }
 
@@ -409,6 +558,9 @@ func (a *App) GetChangedFiles() []snapshot.FileChange {
 	if a.snapEng == nil {
 		return nil
 	}
+	if a.isRemote {
+		return a.snapEng.ChangedFilesByHash(entriesToFingerprints(a.scannedRemoteEntries))
+	}
 	return a.snapEng.ChangedFiles(a.scannedFiles)
 }
 
@@ -417,6 +569,14 @@ func (a *App) AcceptAll() error {
 	defer a.mu.Unlock()
 	if a.snapEng == nil {
 		return fmt.Errorf("未选择工作区")
+	}
+	if a.isRemote {
+		hashes := entriesToFingerprints(a.scannedRemoteEntries)
+		if err := a.snapEng.AcceptHashes(hashes); err != nil {
+			return err
+		}
+		a.emitChanges()
+		return nil
 	}
 	changes := a.snapEng.ChangedFiles(a.scannedFiles)
 	paths := make([]string, len(changes))
@@ -437,6 +597,14 @@ func (a *App) RevertAll() error {
 	if a.snapEng == nil {
 		return fmt.Errorf("未选择工作区")
 	}
+	if a.isRemote {
+		hashes := entriesToFingerprints(a.scannedRemoteEntries)
+		if err := a.snapEng.AcceptHashes(hashes); err != nil {
+			return err
+		}
+		a.emitChanges()
+		return nil
+	}
 	changes := a.snapEng.ChangedFiles(a.scannedFiles)
 	paths := make([]string, len(changes))
 	for i, c := range changes {
@@ -456,6 +624,14 @@ func (a *App) AcceptFile(path string) error {
 	if a.snapEng == nil {
 		return fmt.Errorf("未选择工作区")
 	}
+	if a.isRemote {
+		for _, e := range a.scannedRemoteEntries {
+			if e.path == path {
+				return a.snapEng.AcceptHashes(map[string]string{path: e.fingerprint()})
+			}
+		}
+		return a.snapEng.RemoveFromManifest([]string{path})
+	}
 	if err := a.snapEng.AcceptFile(path); err != nil {
 		return err
 	}
@@ -469,6 +645,14 @@ func (a *App) RevertFile(path string) error {
 	defer a.mu.Unlock()
 	if a.snapEng == nil {
 		return fmt.Errorf("未选择工作区")
+	}
+	if a.isRemote {
+		for _, e := range a.scannedRemoteEntries {
+			if e.path == path {
+				return a.snapEng.AcceptHashes(map[string]string{path: e.fingerprint()})
+			}
+		}
+		return a.snapEng.RemoveFromManifest([]string{path})
 	}
 	if err := a.snapEng.RevertFile(path); err != nil {
 		return err
@@ -526,13 +710,18 @@ func (a *App) CreateTerminal() (string, error) {
 	if a.isRemote {
 		id, err = a.termMgr.CreateSSH(a.remoteSSHCfg)
 	} else {
-		id, err = a.termMgr.Create()
+		id, err = a.termMgr.Create(a.workspace)
 	}
 	if err != nil {
 		return "", err
 	}
 	sess, _ := a.termMgr.Get(id)
 	go a.readTerminalOutput(id, sess)
+
+	if a.isRemote && a.remotePath != "" {
+		// cd to workspace dir — quoted for paths with spaces
+		sess.Write([]byte("cd '" + a.remotePath + "'\n"))
+	}
 	return id, nil
 }
 
@@ -562,7 +751,7 @@ func (a *App) CloseTerminal(tabId string) error {
 func (a *App) CreateSSHTerminal(cfg SSHConfig) (string, error) {
 	tCfg := terminal.SSHConfig{
 		Name: cfg.Name, Host: cfg.Host, Port: cfg.Port,
-		User: cfg.User, Password: cfg.Password,
+		User: cfg.User, Password: cfg.Password, KeyPath: cfg.KeyPath,
 	}
 	id, err := a.termMgr.CreateSSH(tCfg)
 	if err != nil {
@@ -616,11 +805,12 @@ func (a *App) refreshScan() {
 
 func (a *App) refreshScanLocked() {
 	if a.isRemote {
-		files, err := a.listRemoteFiles(a.remoteSFTP, a.remotePath)
+		entries, err := a.listRemoteFiles(a.remoteSFTP, a.remotePath)
 		if err != nil {
 			return
 		}
-		a.scannedFiles = files
+		a.scannedRemoteEntries = entries
+		a.scannedFiles = entriesToPaths(entries)
 		return
 	}
 	result, err := scanner.Scan(a.workspace)
@@ -631,7 +821,12 @@ func (a *App) refreshScanLocked() {
 }
 
 func (a *App) emitChanges() {
-	changes := a.snapEng.ChangedFiles(a.scannedFiles)
+	var changes []snapshot.FileChange
+	if a.isRemote {
+		changes = a.snapEng.ChangedFilesByHash(entriesToFingerprints(a.scannedRemoteEntries))
+	} else {
+		changes = a.snapEng.ChangedFiles(a.scannedFiles)
+	}
 	runtime.EventsEmit(a.ctx, "file-changes", changes)
 }
 

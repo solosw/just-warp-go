@@ -21,9 +21,9 @@ func NewManager() *Manager {
 }
 
 // Create starts a new local terminal session and returns its ID.
-func (m *Manager) Create() (string, error) {
+func (m *Manager) Create(cwd string) (string, error) {
 	id := uuid.New().String()[:8]
-	sess, err := newLocalSession(id)
+	sess, err := newLocalSession(id, cwd)
 	if err != nil {
 		return "", fmt.Errorf("create terminal: %w", err)
 	}

@@ -1,14 +1,23 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, reactive } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 
 const ws = useWorkspaceStore()
+
+interface RemoteEntry {
+  name: string
+  path: string
+  isDir: boolean
+  size: number
+  modTime: number
+}
 
 interface TreeNode {
   name: string
   path: string
   isDir: boolean
-  children: TreeNode[]
+  children: TreeNode[] | null  // null = not loaded, [] or [...] = loaded
+  loading?: boolean
 }
 
 interface FlatNode {
@@ -23,13 +32,25 @@ const expanded = ref<Set<string>>(new Set())
 function sortChildren(nodes: TreeNode[]) {
   nodes.sort((a, b) => {
     if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+    if (a.name === '..') return -1
+    if (b.name === '..') return 1
     return a.name.localeCompare(b.name)
   })
   for (const node of nodes) {
-    if (node.isDir) sortChildren(node.children)
+    if (node.isDir && node.children && node.children.length > 0) sortChildren(node.children)
   }
 }
 
+function entriesToTree(entries: RemoteEntry[]): TreeNode[] {
+  return entries.map(e => ({
+    name: e.name,
+    path: e.path,
+    isDir: e.isDir,
+    children: e.isDir ? null : [],
+  }))
+}
+
+// ── Local: static tree from flat file list ──
 function buildTree(files: string[]): TreeNode[] {
   const root: TreeNode = { name: '', path: '', isDir: true, children: [] }
   for (const file of files) {
@@ -40,30 +61,60 @@ function buildTree(files: string[]): TreeNode[] {
       const part = parts[i]
       currentPath = currentPath ? currentPath + '/' + part : part
       const isLast = i === parts.length - 1
-      let child = current.children.find(c => c.name === part)
+      let child = current.children!.find(c => c.name === part)
       if (!child) {
         child = { name: part, path: currentPath, isDir: !isLast, children: [] }
-        current.children.push(child)
+        current.children!.push(child)
       }
       if (!isLast) child.isDir = true
       current = child
     }
   }
-  sortChildren(root.children)
-  return root.children
+  sortChildren(root.children!)
+  return root.children!
 }
 
-watch(() => ws.info?.files, (files) => {
-  if (files) tree.value = buildTree(files)
-  else tree.value = []
+// ── Remote: lazy directory loading ──
+async function initRemoteTree() {
+  tree.value = []
+  const entries = await ws.loadRemoteDir('')
+  tree.value = entriesToTree(entries || [])
+  sortChildren(tree.value)
+}
+
+async function loadRemoteChildren(node: TreeNode) {
+  node.loading = true
+  const entries = await ws.loadRemoteDir(node.path)
+  node.children = entriesToTree(entries || [])
+  node.loading = false
+  sortChildren(node.children!)
+  // Force reactivity for the tree
+  tree.value = [...tree.value]
+}
+
+// ── Workspace change handler ──
+watch(() => ws.info, async (newInfo) => {
+  if (!newInfo) {
+    tree.value = []
+    return
+  }
+  if (newInfo.isRemote) {
+    await initRemoteTree()
+  } else if (newInfo.files) {
+    tree.value = buildTree(newInfo.files)
+  }
 }, { immediate: true })
 
+// ── Click handler ──
 function handleClick(node: TreeNode) {
   if (node.isDir) {
     if (expanded.value.has(node.path)) {
       expanded.value.delete(node.path)
     } else {
       expanded.value.add(node.path)
+      if (node.children === null) {
+        loadRemoteChildren(node)
+      }
     }
   } else {
     ws.openPreviewFile(node.path)
@@ -75,7 +126,9 @@ function isExpanded(node: TreeNode): boolean {
 }
 
 function getIcon(node: TreeNode): string {
+  if (node.name === '..') return '\u{1F519}'
   if (!node.isDir) return '\u{1F4C4}'
+  if (node.loading) return '\u{23F3}'
   return isExpanded(node) ? '\u{1F4C2}' : '\u{1F4C1}'
 }
 
@@ -83,7 +136,7 @@ function renderTree(nodes: TreeNode[], depth: number = 0): FlatNode[] {
   const result: FlatNode[] = []
   for (const node of nodes) {
     result.push({ node, depth, padding: depth * 14 + 8 })
-    if (node.isDir && isExpanded(node)) {
+    if (node.isDir && isExpanded(node) && node.children) {
       result.push(...renderTree(node.children, depth + 1))
     }
   }
@@ -96,7 +149,7 @@ function renderTree(nodes: TreeNode[], depth: number = 0): FlatNode[] {
     <div class="panel-header">文件目录</div>
     <div class="tree-body">
       <div v-if="!ws.hasWorkspace" class="tree-empty">未选择工作区</div>
-      <div v-else-if="tree.length === 0" class="tree-empty">无文件</div>
+      <div v-else-if="tree.length === 0" class="tree-empty">加载中...</div>
       <div
         v-for="item in renderTree(tree)"
         :key="item.node.path"
@@ -106,6 +159,7 @@ function renderTree(nodes: TreeNode[], depth: number = 0): FlatNode[] {
       >
         <span class="node-icon">{{ getIcon(item.node) }}</span>
         <span class="node-name">{{ item.node.name }}</span>
+        <span v-if="item.node.loading" class="node-loading">...</span>
       </div>
     </div>
   </div>
@@ -168,5 +222,9 @@ function renderTree(nodes: TreeNode[], depth: number = 0): FlatNode[] {
 .node-name {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.node-loading {
+  color: #666;
+  font-size: 10px;
 }
 </style>

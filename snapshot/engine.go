@@ -314,6 +314,45 @@ func (e *Engine) GetSnapshotContent(path string) []byte {
 	return data
 }
 
+// ChangedFilesByHash compares current hashes against stored manifest without reading files.
+func (e *Engine) ChangedFilesByHash(currentHashes map[string]string) []FileChange {
+	currentSet := make(map[string]bool, len(currentHashes))
+	for f := range currentHashes {
+		currentSet[f] = true
+	}
+	var changes []FileChange
+	for f, newHash := range currentHashes {
+		oldHash, existed := e.manifest.Files[f]
+		if !existed {
+			changes = append(changes, FileChange{Path: f, Status: StatusAdded})
+		} else if newHash != oldHash {
+			changes = append(changes, FileChange{Path: f, Status: StatusModified})
+		}
+	}
+	for f := range e.manifest.Files {
+		if !currentSet[f] {
+			changes = append(changes, FileChange{Path: f, Status: StatusDeleted})
+		}
+	}
+	return changes
+}
+
+// AcceptHashes updates manifest entries without reading files (for remote).
+func (e *Engine) AcceptHashes(hashes map[string]string) error {
+	for path, h := range hashes {
+		e.manifest.Files[path] = h
+	}
+	return e.saveManifest()
+}
+
+// RemoveFromManifest deletes entries from manifest (for remote revert).
+func (e *Engine) RemoveFromManifest(paths []string) error {
+	for _, path := range paths {
+		delete(e.manifest.Files, path)
+	}
+	return e.saveManifest()
+}
+
 // ReadFileContent reads a file from workspace.
 func ReadFileContent(workspace, relPath string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(workspace, relPath))

@@ -61,11 +61,11 @@ onMounted(async () => {
       ></div>
       <TerminalPanel />
       <div
-        v-if="ws.hasWorkspace"
+        v-if="ws.hasWorkspace && ws.previewFiles.length > 0"
         class="resize-handle"
         @mousedown="startResize('preview')"
       ></div>
-      <FilePreviewPanel v-if="ws.hasWorkspace" :style="{ width: previewWidth + 'px' }" />
+      <FilePreviewPanel v-if="ws.hasWorkspace && ws.previewFiles.length > 0" :style="{ width: previewWidth + 'px' }" />
       <div
         v-if="ws.hasWorkspace"
         class="resize-handle"

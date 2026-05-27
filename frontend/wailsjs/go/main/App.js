@@ -54,6 +54,10 @@ export function GetWorkspaceInfo() {
   return window['go']['main']['App']['GetWorkspaceInfo']();
 }
 
+export function ListRemoteDir(arg1) {
+  return window['go']['main']['App']['ListRemoteDir'](arg1);
+}
+
 export function OpenInNewWindow(arg1) {
   return window['go']['main']['App']['OpenInNewWindow'](arg1);
 }

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { SelectWorkspace, OpenWorkspace, GetWorkspaceInfo, GetWorkspaceHistory, RemoveWorkspaceFromHistory, OpenInNewWindow, RefreshRemoteWorkspace, GetRemoteWorkspaces, RemoveRemoteWorkspace, OpenRemoteWorkspace } from '../../wailsjs/go/main/App'
+import { SelectWorkspace, OpenWorkspace, GetWorkspaceInfo, GetWorkspaceHistory, RemoveWorkspaceFromHistory, OpenInNewWindow, RefreshRemoteWorkspace, GetRemoteWorkspaces, RemoveRemoteWorkspace, OpenRemoteWorkspace, ListRemoteDir } from '../../wailsjs/go/main/App'
 import { main, config } from '../../wailsjs/go/models'
 import { useFileChangesStore } from './fileChanges'
 
@@ -59,11 +59,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function removeFromHistory(path: string) { await RemoveWorkspaceFromHistory(path); await loadHistory() }
   async function refresh() { info.value = await GetWorkspaceInfo() }
   async function refreshRemote() { const r = await RefreshRemoteWorkspace(); if (r) { info.value = r; syncChanges() } }
+  async function loadRemoteDir(dir: string) { return await ListRemoteDir(dir) }
 
   return {
     info, history, remoteList, hasWorkspace,
     previewFiles, activePreviewFile, openPreviewFile, closePreviewFile,
     loadHistory, selectWorkspace, openWorkspace, openRemoteWorkspace, removeRemote,
-    openInNewWindow, removeFromHistory, refresh, refreshRemote
+    openInNewWindow, removeFromHistory, refresh, refreshRemote, loadRemoteDir
   }
 })

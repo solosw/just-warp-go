@@ -30,6 +30,8 @@ export function GetWorkspaceHistory():Promise<Array<config.WorkspaceEntry>>;
 
 export function GetWorkspaceInfo():Promise<main.WorkspaceInfo>;
 
+export function ListRemoteDir(arg1:string):Promise<Array<main.RemoteDirEntry>>;
+
 export function OpenInNewWindow(arg1:string):Promise<void>;
 
 export function OpenRemoteWorkspace(arg1:main.SSHConfig,arg2:string):Promise<main.WorkspaceInfo>;
