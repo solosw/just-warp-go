@@ -80,6 +80,32 @@ func (s *Store) SaveWorkspace(wsPath string) error {
 	return os.WriteFile(filepath.Join(s.dir, "workspaces.json"), data, 0644)
 }
 
+// ─── Startup Commands ─────────────────────────────────
+
+func (s *Store) LoadStartupCommands() ([]StartupCommand, error) {
+	path := filepath.Join(s.dir, "startup-commands.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var cmds []StartupCommand
+	if err := json.Unmarshal(data, &cmds); err != nil {
+		return nil, err
+	}
+	return cmds, nil
+}
+
+func (s *Store) SaveStartupCommands(cmds []StartupCommand) error {
+	data, err := json.MarshalIndent(cmds, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(s.dir, "startup-commands.json"), data, 0644)
+}
+
 // ─── SSH Configs ────────────────────────────────────
 
 // SSHConfig represents a saved SSH connection.
@@ -100,6 +126,12 @@ type RemoteWorkspaceEntry struct {
 	User       string `json:"user"`
 	RemotePath string `json:"remotePath"`
 	CachePath  string `json:"cachePath"`
+}
+
+// StartupCommand represents a saved quick-launch command.
+type StartupCommand struct {
+	Name    string `json:"name"`
+	Command string `json:"command"`
 }
 
 func (s *Store) LoadSSHConfigs() ([]SSHConfig, error) {

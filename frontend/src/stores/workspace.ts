@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { SelectWorkspace, OpenWorkspace, GetWorkspaceInfo, GetWorkspaceHistory, RemoveWorkspaceFromHistory, OpenInNewWindow, RefreshRemoteWorkspace, GetRemoteWorkspaces, RemoveRemoteWorkspace, OpenRemoteWorkspace, ListRemoteDir } from '../../wailsjs/go/main/App'
+import { SelectWorkspace, OpenWorkspace, GetWorkspaceInfo, GetWorkspaceHistory, RemoveWorkspaceFromHistory, OpenInNewWindow, RefreshLocalWorkspace, RefreshRemoteWorkspace, GetRemoteWorkspaces, RemoveRemoteWorkspace, OpenRemoteWorkspace, ListRemoteDir } from '../../wailsjs/go/main/App'
 import { main, config } from '../../wailsjs/go/models'
 import { useFileChangesStore } from './fileChanges'
 
@@ -12,6 +12,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   const previewFiles = ref<string[]>([])
   const activePreviewFile = ref<string | null>(null)
+  const showStartupPicker = ref(false)
 
   function openPreviewFile(path: string) {
     if (!previewFiles.value.includes(path)) previewFiles.value.push(path)
@@ -34,19 +35,19 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   async function selectWorkspace() {
     const r = await SelectWorkspace()
-    if (r) { info.value = r; syncChanges(); await loadHistory() }
+    if (r) { info.value = r; syncChanges(); await loadHistory(); showStartupPicker.value = true }
     return r
   }
 
   async function openWorkspace(path: string) {
     const r = await OpenWorkspace(path)
-    if (r) { info.value = r; syncChanges(); await loadHistory() }
+    if (r) { info.value = r; syncChanges(); await loadHistory(); showStartupPicker.value = true }
     return r
   }
 
   async function openRemoteWorkspace(entry: config.RemoteWorkspaceEntry) {
     const r = await OpenRemoteWorkspace(entry as any, entry.remotePath)
-    if (r) { info.value = r; syncChanges(); await loadHistory() }
+    if (r) { info.value = r; syncChanges(); await loadHistory(); showStartupPicker.value = true }
     return r
   }
 
@@ -58,6 +59,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function openInNewWindow(path: string) { await OpenInNewWindow(path) }
   async function removeFromHistory(path: string) { await RemoveWorkspaceFromHistory(path); await loadHistory() }
   async function refresh() { info.value = await GetWorkspaceInfo() }
+  async function refreshLocal() { const r = await RefreshLocalWorkspace(); if (r) { info.value = r; syncChanges() } }
   async function refreshRemote() { const r = await RefreshRemoteWorkspace(); if (r) { info.value = r; syncChanges() } }
   async function loadRemoteDir(dir: string) { return await ListRemoteDir(dir) }
 
@@ -65,6 +67,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     info, history, remoteList, hasWorkspace,
     previewFiles, activePreviewFile, openPreviewFile, closePreviewFile,
     loadHistory, selectWorkspace, openWorkspace, openRemoteWorkspace, removeRemote,
-    openInNewWindow, removeFromHistory, refresh, refreshRemote, loadRemoteDir
+    openInNewWindow, removeFromHistory, refresh, refreshLocal, refreshRemote, loadRemoteDir,
+    showStartupPicker
   }
 })

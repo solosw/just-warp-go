@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useTerminalStore } from '../stores/terminal'
+import { useWorkspaceStore } from '../stores/workspace'
 import TerminalView from './TerminalView.vue'
 import SSHConnectDialog from './SSHConnectDialog.vue'
 
 const store = useTerminalStore()
+const ws = useWorkspaceStore()
 const showSSHDialog = ref(false)
 
 const gridCols = computed(() => {
@@ -29,7 +31,7 @@ const gridCols = computed(() => {
         <span>{{ tab.title }}</span>
         <button class="tab-close" @click.stop="store.closeTab(tab.id)">×</button>
       </div>
-      <button class="tab-new" @click="store.createTerminal()">+</button>
+      <button class="tab-new" @click="ws.showStartupPicker = true">+</button>
       <button class="tab-ssh" @click="showSSHDialog = true" title="SSH连接">&#x1F50C;</button>
       <div class="tab-spacer"></div>
       <button

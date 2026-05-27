@@ -42,6 +42,10 @@ export function GetSSHConfigs() {
   return window['go']['main']['App']['GetSSHConfigs']();
 }
 
+export function GetStartupCommands() {
+  return window['go']['main']['App']['GetStartupCommands']();
+}
+
 export function GetStartupWorkspace() {
   return window['go']['main']['App']['GetStartupWorkspace']();
 }
@@ -68,6 +72,10 @@ export function OpenRemoteWorkspace(arg1, arg2) {
 
 export function OpenWorkspace(arg1) {
   return window['go']['main']['App']['OpenWorkspace'](arg1);
+}
+
+export function RefreshLocalWorkspace() {
+  return window['go']['main']['App']['RefreshLocalWorkspace']();
 }
 
 export function RefreshRemoteWorkspace() {
@@ -104,6 +112,10 @@ export function SaveRemoteWorkspace(arg1) {
 
 export function SaveSSHConfig(arg1) {
   return window['go']['main']['App']['SaveSSHConfig'](arg1);
+}
+
+export function SaveStartupCommands(arg1) {
+  return window['go']['main']['App']['SaveStartupCommands'](arg1);
 }
 
 export function SelectWorkspace() {

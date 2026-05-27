@@ -352,7 +352,8 @@ func (a *App) OpenRemoteWorkspace(cfg SSHConfig, remotePath string) (*WorkspaceI
 		configs, err := a.cfgStore.LoadSSHConfigs()
 		if err == nil {
 			for _, c := range configs {
-				if c.Name == cfg.Name {
+				// Match exact or composite name (Name may be "SSH:/path" from re-open)
+				if c.Name == cfg.Name || strings.HasPrefix(cfg.Name, c.Name+":") {
 					cfg.Password = c.Password
 					cfg.KeyPath = c.KeyPath
 					break
@@ -440,6 +441,17 @@ func (a *App) OpenRemoteWorkspace(cfg SSHConfig, remotePath string) (*WorkspaceI
 	info := a.makeWorkspaceInfo()
 	a.emitChanges()
 	return info, nil
+}
+
+func (a *App) RefreshLocalWorkspace() (*WorkspaceInfo, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.isRemote || a.workspace == "" {
+		return nil, fmt.Errorf("当前不是本地工作区")
+	}
+	a.refreshScanLocked()
+	a.emitChanges()
+	return a.makeWorkspaceInfo(), nil
 }
 
 func (a *App) RefreshRemoteWorkspace() (*WorkspaceInfo, error) {
@@ -805,6 +817,22 @@ func (a *App) RemoveSSHConfig(name string) error {
 		return nil
 	}
 	return a.cfgStore.RemoveSSHConfig(name)
+}
+
+// ─── Startup Commands ──────────────────────────────────
+
+func (a *App) GetStartupCommands() ([]config.StartupCommand, error) {
+	if a.cfgStore == nil {
+		return nil, nil
+	}
+	return a.cfgStore.LoadStartupCommands()
+}
+
+func (a *App) SaveStartupCommands(cmds []config.StartupCommand) error {
+	if a.cfgStore == nil {
+		return fmt.Errorf("配置存储不可用")
+	}
+	return a.cfgStore.SaveStartupCommands(cmds)
 }
 
 func (a *App) readTerminalOutput(id string, sess *terminal.Session) {

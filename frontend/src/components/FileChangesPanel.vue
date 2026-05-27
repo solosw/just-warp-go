@@ -2,12 +2,28 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import DiffView from './DiffView.vue'
 import { useFileChangesStore } from '../stores/fileChanges'
+import { useWorkspaceStore } from '../stores/workspace'
 import { snapshot } from '../../wailsjs/go/models'
 import { detectLang } from '../utils/detectLang'
 import type { FileDiff } from '../types'
 
 const store = useFileChangesStore()
+const ws = useWorkspaceStore()
 const viewingDiff = ref<string | null>(null)
+const refreshing = ref(false)
+
+async function doRefresh() {
+  refreshing.value = true
+  try {
+    if (ws.info?.isRemote) {
+      await ws.refreshRemote()
+    } else {
+      await ws.refreshLocal()
+    }
+  } finally {
+    refreshing.value = false
+  }
+}
 const diffContent = ref<FileDiff | null>(null)
 
 function onKeydown(e: KeyboardEvent) {
@@ -43,7 +59,12 @@ function closeDiff() {
 
 <template>
   <div class="changes-panel">
-    <div class="panel-header">文件变更</div>
+    <div class="panel-header">
+      文件变更
+      <button class="btn-refresh" :disabled="refreshing" @click="doRefresh" title="手动刷新">
+        {{ refreshing ? '...' : '↻' }}
+      </button>
+    </div>
 
     <div v-if="!store.hasChanges" class="panel-empty">无变更</div>
 
@@ -110,8 +131,16 @@ function closeDiff() {
   border-bottom: 1px solid #333;
   height: 36px;
   display: flex;
+  justify-content: space-between;
   align-items: center;
 }
+.btn-refresh {
+  background: none; border: 1px solid #3a3a3e; color: #888;
+  cursor: pointer; font-size: 14px; padding: 0 6px; border-radius: 3px;
+  line-height: 20px;
+}
+.btn-refresh:hover { color: #fff; border-color: #58a6ff; }
+.btn-refresh:disabled { opacity: 0.5; cursor: default; }
 .panel-empty {
   padding: 20px;
   text-align: center;

@@ -2,15 +2,40 @@
 import { onMounted, ref } from 'vue'
 import { useWorkspaceStore } from './stores/workspace'
 import { useFileChangesStore } from './stores/fileChanges'
-import { GetStartupWorkspace } from '../wailsjs/go/main/App'
+import { useTerminalStore } from './stores/terminal'
+import { GetStartupWorkspace, CreateTerminal, WriteToTerminal } from '../wailsjs/go/main/App'
+import { config } from '../wailsjs/go/models'
 import WorkspaceBar from './components/WorkspaceBar.vue'
 import FileTreePanel from './components/FileTreePanel.vue'
 import TerminalPanel from './components/TerminalPanel.vue'
 import FilePreviewPanel from './components/FilePreviewPanel.vue'
 import FileChangesPanel from './components/FileChangesPanel.vue'
+import StartupCommandPicker from './components/StartupCommandPicker.vue'
+import StartupCommandSettings from './components/StartupCommandSettings.vue'
 
 const ws = useWorkspaceStore()
+const term = useTerminalStore()
+const showSettings = ref(false)
 const fc = useFileChangesStore()
+
+async function onPickerSelect(cmd: config.StartupCommand) {
+  ws.showStartupPicker = false
+  const id = await CreateTerminal()
+  if (id) {
+    term.addSSHTab(id, cmd.name)
+    await WriteToTerminal(id, cmd.command + '\n')
+  }
+}
+
+async function onPickerDismiss() {
+  ws.showStartupPicker = false
+  await term.createTerminal()
+}
+
+function onPickerSettings() {
+  showSettings.value = true
+  ws.showStartupPicker = false
+}
 
 // Resizable panel widths
 const treeWidth = ref(220)
@@ -73,6 +98,16 @@ onMounted(async () => {
       ></div>
       <FileChangesPanel v-if="ws.hasWorkspace" :style="{ width: changesWidth + 'px' }" />
     </div>
+    <StartupCommandPicker
+      v-if="ws.showStartupPicker"
+      @select="onPickerSelect"
+      @dismiss="onPickerDismiss"
+      @settings="onPickerSettings"
+    />
+    <StartupCommandSettings
+      v-if="showSettings"
+      @close="showSettings = false"
+    />
   </div>
 </template>
 
