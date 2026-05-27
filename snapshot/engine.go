@@ -353,6 +353,19 @@ func (e *Engine) RemoveFromManifest(paths []string) error {
 	return e.saveManifest()
 }
 
+// FilterManifest removes entries that don't match the keep predicate.
+// Used to clean stale directory entries from older remote workspace manifests.
+func (e *Engine) FilterManifest(keep func(path string) bool) {
+	cleaned := make(map[string]string, len(e.manifest.Files))
+	for p, h := range e.manifest.Files {
+		if keep(p) {
+			cleaned[p] = h
+		}
+	}
+	e.manifest.Files = cleaned
+	e.saveManifest()
+}
+
 // ReadFileContent reads a file from workspace.
 func ReadFileContent(workspace, relPath string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(workspace, relPath))

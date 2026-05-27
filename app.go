@@ -150,6 +150,31 @@ func (a *App) shutdown(ctx context.Context) {
 	a.closeRemote()
 }
 
+// ensureGitignore makes sure .warp-snapshots is in the workspace .gitignore.
+func ensureGitignore(workspace string) {
+	giPath := filepath.Join(workspace, ".gitignore")
+	data, err := os.ReadFile(giPath)
+	if os.IsNotExist(err) {
+		os.WriteFile(giPath, []byte(".warp-snapshots\n"), 0644)
+		return
+	}
+	if err != nil {
+		return
+	}
+	content := string(data)
+	if !strings.Contains(content, ".warp-snapshots") {
+		f, err := os.OpenFile(giPath, os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		if !strings.HasSuffix(content, "\n") {
+			f.WriteString("\n")
+		}
+		f.WriteString(".warp-snapshots\n")
+	}
+}
+
 func (a *App) closeRemote() {
 	if a.remoteSFTP != nil {
 		a.remoteSFTP.Close()
@@ -198,6 +223,7 @@ func (a *App) OpenWorkspace(path string) (*WorkspaceInfo, error) {
 	}
 
 	a.workspace = path
+	ensureGitignore(path)
 	a.snapEng = snapshot.NewEngine(path)
 
 	result, err := scanner.Scan(path)
@@ -359,22 +385,12 @@ func (a *App) OpenRemoteWorkspace(cfg SSHConfig, remotePath string) (*WorkspaceI
 		return nil, fmt.Errorf("SFTP初始化失败: %w", err)
 	}
 
-	// List only root directory for initial display (lazy subdirs)
-	rootInfos, err := sftpClient.ReadDir(remotePath)
+	// Full Walk for change detection (noise-filtered, fast with skip dirs)
+	entries, err := a.listRemoteFiles(sftpClient, remotePath)
 	if err != nil {
 		sftpClient.Close()
 		client.Close()
 		return nil, fmt.Errorf("扫描远程目录失败: %w", err)
-	}
-
-	// Build root-level entries from ReadDir
-	rootEntries := make([]remoteFileEntry, 0, len(rootInfos))
-	for _, info := range rootInfos {
-		rootEntries = append(rootEntries, remoteFileEntry{
-			path:    info.Name(),
-			size:    info.Size(),
-			modTime: info.ModTime(),
-		})
 	}
 
 	a.remoteClient = client
@@ -383,8 +399,8 @@ func (a *App) OpenRemoteWorkspace(cfg SSHConfig, remotePath string) (*WorkspaceI
 	a.isRemote = true
 	a.workspace = cfg.Name + ":" + remotePath
 	a.remoteSSHCfg = tCfg
-	a.scannedRemoteEntries = rootEntries
-	a.scannedFiles = entriesToPaths(rootEntries)
+	a.scannedRemoteEntries = entries
+	a.scannedFiles = entriesToPaths(entries)
 
 	// Manifest stored in config dir (hash-only, no file copies)
 	wsID := sanitizeID(cfg.Host + "_" + remotePath)
@@ -395,8 +411,16 @@ func (a *App) OpenRemoteWorkspace(cfg SSHConfig, remotePath string) (*WorkspaceI
 	if err := a.snapEng.LoadManifest(); err != nil {
 		return nil, err
 	}
+	// Clean stale single-segment directory entries from older manifests
+	a.snapEng.FilterManifest(func(p string) bool {
+		ext := filepath.Ext(p)
+		if ext != "" {
+			return true // has extension, likely a file
+		}
+		return strings.Contains(p, "/") // keep if nested, drop if root-level bare name
+	})
 	if !a.snapEng.HasSnapshot() {
-		hashes := entriesToFingerprints(rootEntries)
+		hashes := entriesToFingerprints(entries)
 		if err := a.snapEng.InitHashOnly(hashes); err != nil {
 			return nil, err
 		}
@@ -405,7 +429,7 @@ func (a *App) OpenRemoteWorkspace(cfg SSHConfig, remotePath string) (*WorkspaceI
 	// Save entry
 	if a.cfgStore != nil {
 		a.cfgStore.SaveRemoteWorkspace(config.RemoteWorkspaceEntry{
-			Name:       cfg.Name,
+			Name:       cfg.Name + ":" + remotePath,
 			Host:       cfg.Host,
 			Port:       cfg.Port,
 			User:       cfg.User,
