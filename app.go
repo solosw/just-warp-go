@@ -757,16 +757,24 @@ func (a *App) SaveFile(relPath, content string) error {
 		if _, err := f.Write([]byte(content)); err != nil {
 			return fmt.Errorf("写入远程文件失败: %w", err)
 		}
-		// Update manifest hash for the saved file
 		newHash := snapshot.HashBytes([]byte(content))
-		_ = a.snapEng.AcceptHashes(map[string]string{relPath: newHash})
+		if err := a.snapEng.AcceptHashes(map[string]string{relPath: newHash}); err != nil {
+			return fmt.Errorf("更新清单失败: %w", err)
+		}
 		a.refreshScanLocked()
 		a.emitChanges()
 		return nil
 	}
 	fullPath := filepath.Join(a.workspace, relPath)
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		return fmt.Errorf("创建目录失败: %w", err)
+	}
 	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("保存文件失败: %w", err)
+	}
+	newHash := snapshot.HashBytes([]byte(content))
+	if err := a.snapEng.AcceptHashes(map[string]string{relPath: newHash}); err != nil {
+		return fmt.Errorf("更新清单失败: %w", err)
 	}
 	a.refreshScanLocked()
 	a.emitChanges()
