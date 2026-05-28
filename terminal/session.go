@@ -1,7 +1,6 @@
 package terminal
 
 import (
-	"fmt"
 	"os/exec"
 	"runtime"
 
@@ -26,9 +25,7 @@ type Session struct {
 func newLocalSession(id, cwd string) (*Session, error) {
 	shell := "bash"
 	if runtime.GOOS == "windows" {
-		if cwd != "" {
-			shell = fmt.Sprintf(`powershell.exe -NoLogo -NoExit -WorkingDirectory "%s"`, cwd)
-		} else if _, err := exec.LookPath("powershell.exe"); err == nil {
+		if _, err := exec.LookPath("powershell.exe"); err == nil {
 			shell = `powershell.exe -NoLogo -NoExit`
 		} else {
 			shell = `cmd.exe`

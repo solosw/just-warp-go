@@ -755,7 +755,6 @@ func (a *App) CreateTerminal() (string, error) {
 	go a.readTerminalOutput(id, sess)
 
 	if a.isRemote && a.remotePath != "" {
-		// cd to workspace dir — quoted for paths with spaces
 		sess.Write([]byte("cd '" + a.remotePath + "'\n"))
 	}
 	return id, nil

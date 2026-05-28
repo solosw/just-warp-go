@@ -18,18 +18,27 @@ const term = useTerminalStore()
 const showSettings = ref(false)
 const fc = useFileChangesStore()
 
+function escapeCdPath(p: string) {
+  return p.replace(/"/g, '\\"')
+}
+
 async function onPickerSelect(cmd: config.StartupCommand) {
   ws.showStartupPicker = false
   const id = await CreateTerminal()
   if (id) {
     term.addSSHTab(id, cmd.name)
+    
     await WriteToTerminal(id, cmd.command + '\n')
+    await WriteToTerminal(id, 'cd "' + escapeCdPath(ws.info!.path) + '"\n')
   }
 }
 
 async function onPickerDismiss() {
   ws.showStartupPicker = false
-  await term.createTerminal()
+  const tab = await term.createTerminal()
+  if (tab && ws.info) {
+    await WriteToTerminal(tab.id, 'cd "' + escapeCdPath(ws.info.path) + '"\n')
+  }
 }
 
 function onPickerSettings() {
