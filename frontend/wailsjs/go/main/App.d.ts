@@ -56,6 +56,8 @@ export function RevertAll():Promise<void>;
 
 export function RevertFile(arg1:string):Promise<void>;
 
+export function SaveFile(arg1:string,arg2:string):Promise<void>;
+
 export function SaveRemoteWorkspace(arg1:config.RemoteWorkspaceEntry):Promise<void>;
 
 export function SaveSSHConfig(arg1:config.SSHConfig):Promise<void>;

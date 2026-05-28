@@ -106,6 +106,10 @@ export function RevertFile(arg1) {
   return window['go']['main']['App']['RevertFile'](arg1);
 }
 
+export function SaveFile(arg1, arg2) {
+  return window['go']['main']['App']['SaveFile'](arg1, arg2);
+}
+
 export function SaveRemoteWorkspace(arg1) {
   return window['go']['main']['App']['SaveRemoteWorkspace'](arg1);
 }
