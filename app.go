@@ -738,7 +738,7 @@ func (a *App) GetFileContent(path string) (string, error) {
 	return snapshot.ReadFileContent(a.workspace, path)
 }
 
-func (a *App) SaveFile(path, content string) error {
+func (a *App) SaveFile(relPath, content string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.workspace == "" || a.snapEng == nil {
@@ -748,7 +748,7 @@ func (a *App) SaveFile(path, content string) error {
 		if a.remoteSFTP == nil {
 			return fmt.Errorf("远程连接不可用")
 		}
-		rp := path.Join(a.remotePath, path)
+		rp := path.Join(a.remotePath, relPath)
 		f, err := a.remoteSFTP.Create(rp)
 		if err != nil {
 			return fmt.Errorf("写入远程文件失败: %w", err)
@@ -759,12 +759,12 @@ func (a *App) SaveFile(path, content string) error {
 		}
 		// Update manifest hash for the saved file
 		newHash := snapshot.HashBytes([]byte(content))
-		_ = a.snapEng.AcceptHashes(map[string]string{path: newHash})
+		_ = a.snapEng.AcceptHashes(map[string]string{relPath: newHash})
 		a.refreshScanLocked()
 		a.emitChanges()
 		return nil
 	}
-	fullPath := filepath.Join(a.workspace, path)
+	fullPath := filepath.Join(a.workspace, relPath)
 	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("保存文件失败: %w", err)
 	}
