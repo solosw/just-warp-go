@@ -30,7 +30,10 @@ SaveFile(path, content string) error
 Install codemirror 6 packages:
 
 ```
-npm install codemirror @codemirror/state @codemirror/view @codemirror/commands @codemirror/language @codemirror/lang-javascript @codemirror/lang-json @codemirror/lang-python @codemirror/lang-html @codemirror/lang-css @codemirror/lang-markdown @codemirror/lang-xml @codemirror/theme-one-dark
+npm install codemirror @codemirror/state @codemirror/view @codemirror/commands @codemirror/language @codemirror/theme-one-dark \
+  @codemirror/lang-javascript @codemirror/lang-json @codemirror/lang-python @codemirror/lang-html @codemirror/lang-css \
+  @codemirror/lang-markdown @codemirror/lang-xml @codemirror/lang-cpp @codemirror/lang-java @codemirror/lang-go \
+  @codemirror/lang-rust @codemirror/lang-php @codemirror/lang-sql @codemirror/legacy-modes
 ```
 
 ### New component: `CodeEditor.vue`
@@ -64,15 +67,33 @@ Behavior:
 
 ### Language mapping
 
-Reuse existing `detectLang()` utility. Map its output to CM6 language extensions:
-- `js/ts` → `javascript()`
-- `json` → `json()`
-- `py` → `python()`
-- `html` → `html()`
-- `css/scss/less` → `css()`
-- `md` → `markdown()`
-- `xml/svg` → `xml()`
-- default → plain text (no language extension)
+Reuse existing `detectLang()` utility. Two-tier mapping:
+
+**Official CM6 packages** (first-class support, tree-sitter grammar):
+| detectLang output | CM6 extension |
+|---|---|
+| `javascript`, `typescript` | `@codemirror/lang-javascript` |
+| `json` | `@codemirror/lang-json` |
+| `python` | `@codemirror/lang-python` |
+| `html` | `@codemirror/lang-html` |
+| `css`, `scss`, `less` | `@codemirror/lang-css` |
+| `markdown` | `@codemirror/lang-markdown` |
+| `xml` | `@codemirror/lang-xml` |
+| `c`, `cpp` | `@codemirror/lang-cpp` |
+| `java` | `@codemirror/lang-java` |
+| `go` | `@codemirror/lang-go` |
+| `rust` | `@codemirror/lang-rust` |
+| `php` | `@codemirror/lang-php` |
+| `sql`, `pgsql` | `@codemirror/lang-sql` |
+
+**Legacy modes** (StreamLanguage wrapper, covers the rest):
+`yaml`, `toml`, `ruby`, `swift`, `objectivec`, `kotlin`, `scala`, `groovy`,
+`csharp`, `lua`, `r`, `dart`, `bash`, `fish`, `powershell`, `dos`,
+`dockerfile`, `makefile`, `cmake`, `ini`, `graphql`, `protobuf`, `latex`,
+`elm`, `erlang`, `elixir`, `haskell`, `clojure`, `fortran`, `perl`,
+`scheme`, `vim`
+
+**Fallback**: any unrecognized language → plain text (no syntax highlighting, editing still works)
 
 ### Data flow
 
