@@ -738,6 +738,41 @@ func (a *App) GetFileContent(path string) (string, error) {
 	return snapshot.ReadFileContent(a.workspace, path)
 }
 
+func (a *App) SaveFile(path, content string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.workspace == "" || a.snapEng == nil {
+		return fmt.Errorf("未选择工作区")
+	}
+	if a.isRemote {
+		if a.remoteSFTP == nil {
+			return fmt.Errorf("远程连接不可用")
+		}
+		rp := path.Join(a.remotePath, path)
+		f, err := a.remoteSFTP.Create(rp)
+		if err != nil {
+			return fmt.Errorf("写入远程文件失败: %w", err)
+		}
+		defer f.Close()
+		if _, err := f.Write([]byte(content)); err != nil {
+			return fmt.Errorf("写入远程文件失败: %w", err)
+		}
+		// Update manifest hash for the saved file
+		newHash := snapshot.HashBytes([]byte(content))
+		_ = a.snapEng.AcceptHashes(map[string]string{path: newHash})
+		a.refreshScanLocked()
+		a.emitChanges()
+		return nil
+	}
+	fullPath := filepath.Join(a.workspace, path)
+	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("保存文件失败: %w", err)
+	}
+	a.refreshScanLocked()
+	a.emitChanges()
+	return nil
+}
+
 // ─── Terminal ────────────────────────────────────────
 
 func (a *App) CreateTerminal() (string, error) {
