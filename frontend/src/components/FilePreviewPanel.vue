@@ -120,7 +120,7 @@ async function handleSave() {
 
 watch(activeFile, (path) => {
   if (path && !cache.value[path]) loadFile(path)
-})
+}, { immediate: true })
 </script>
 
 <template>
