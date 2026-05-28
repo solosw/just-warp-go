@@ -3,7 +3,8 @@ import { ref, watch, computed } from 'vue'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github-dark.css'
 import DiffView from './DiffView.vue'
-import { GetFileContent, GetFileDiff } from '../../wailsjs/go/main/App'
+import CodeEditor from './CodeEditor.vue'
+import { GetFileContent, GetFileDiff, SaveFile } from '../../wailsjs/go/main/App'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFileChangesStore } from '../stores/fileChanges'
 import { detectLang } from '../utils/detectLang'
@@ -11,7 +12,6 @@ import { detectLang } from '../utils/detectLang'
 const ws = useWorkspaceStore()
 const fc = useFileChangesStore()
 
-// Per-file state cache: path -> { content, highlightedHtml, loading, showDiff, old, new }
 const cache = ref<Record<string, {
   content: string
   highlightedHtml: string
@@ -19,6 +19,9 @@ const cache = ref<Record<string, {
   showDiff: boolean
   oldContent: string
   newContent: string
+  isEditing: boolean
+  editContent: string
+  saveError: string
 }>>({})
 
 const activeFile = computed(() => ws.activePreviewFile)
@@ -27,7 +30,10 @@ const isChanged = computed(() => !!activeFile.value && fc.changes.some(c => c.pa
 
 function getOrCreate(path: string) {
   if (!cache.value[path]) {
-    cache.value[path] = { content: '', highlightedHtml: '', loading: false, showDiff: false, oldContent: '', newContent: '' }
+    cache.value[path] = {
+      content: '', highlightedHtml: '', loading: false, showDiff: false,
+      oldContent: '', newContent: '', isEditing: false, editContent: '', saveError: '',
+    }
   }
   return cache.value[path]
 }
@@ -53,6 +59,8 @@ async function loadFile(path: string) {
   const st = getOrCreate(path)
   st.loading = true
   st.showDiff = false
+  st.isEditing = false
+  st.saveError = ''
   try {
     const raw = await GetFileContent(path) || ''
     st.content = raw
@@ -72,13 +80,44 @@ async function toggleDiff() {
       st.oldContent = diff?.old ?? ''
       st.newContent = diff?.new ?? ''
       st.showDiff = true
-    } catch {}
+    } catch { }
   } else {
     st.showDiff = false
   }
 }
 
-// Load file when a new one becomes active
+function enterEdit() {
+  const st = activeState.value
+  if (!st) return
+  st.editContent = st.content
+  st.isEditing = true
+  st.saveError = ''
+}
+
+function cancelEdit() {
+  const st = activeState.value
+  if (!st) return
+  st.isEditing = false
+  st.editContent = ''
+  st.saveError = ''
+}
+
+async function handleSave() {
+  const st = activeState.value
+  const path = activeFile.value
+  if (!st || !path) return
+  st.saveError = ''
+  try {
+    await SaveFile(path, st.editContent)
+    st.content = st.editContent
+    st.highlightedHtml = highlight(st.editContent, path)
+    st.isEditing = false
+    st.editContent = ''
+  } catch (e: any) {
+    st.saveError = '保存失败: ' + (e?.message || e)
+  }
+}
+
 watch(activeFile, (path) => {
   if (path && !cache.value[path]) loadFile(path)
 })
@@ -87,7 +126,6 @@ watch(activeFile, (path) => {
 <template>
   <div class="preview-panel">
     <div class="panel-header">文件预览</div>
-    <!-- Tab bar -->
     <div class="tab-bar" v-if="ws.previewFiles.length > 0">
       <div
         v-for="path in ws.previewFiles"
@@ -105,11 +143,28 @@ watch(activeFile, (path) => {
     <template v-else>
       <div class="preview-toolbar">
         <span class="preview-path">{{ activeFile }}</span>
-        <button class="btn-diff" :class="{ active: isChanged }" @click="toggleDiff">
-          {{ activeState?.showDiff ? '隐藏差异' : '查看差异' }}
-        </button>
+        <template v-if="activeState?.isEditing">
+          <button class="btn-save" @click="handleSave">保存</button>
+          <button class="btn-cancel" @click="cancelEdit">取消</button>
+          <span v-if="activeState?.saveError" class="save-error">{{ activeState.saveError }}</span>
+        </template>
+        <template v-else>
+          <button class="btn-edit" @click="enterEdit">编辑</button>
+          <button class="btn-diff" :class="{ active: isChanged }" @click="toggleDiff">
+            {{ activeState?.showDiff ? '隐藏差异' : '查看差异' }}
+          </button>
+        </template>
       </div>
       <div v-if="activeState?.loading" class="preview-loading">加载中...</div>
+      <div v-else-if="activeState?.isEditing" class="editor-wrap">
+        <CodeEditor
+          :model-value="activeState!.editContent"
+          :language="detectLang(activeFile)"
+          :read-only="false"
+          @update:model-value="val => activeState && (activeState.editContent = val)"
+          @save="handleSave"
+        />
+      </div>
       <div v-else-if="activeState?.showDiff" class="diff-wrap">
         <DiffView
           :old-string="activeState!.oldContent"
@@ -118,7 +173,12 @@ watch(activeFile, (path) => {
           :file-path="activeFile"
         />
       </div>
-      <pre v-else class="preview-content" v-html="activeState?.highlightedHtml || ''"></pre>
+      <CodeEditor
+        v-else
+        :model-value="activeState?.content || ''"
+        :language="detectLang(activeFile)"
+        :read-only="true"
+      />
     </template>
   </div>
 </template>
@@ -205,6 +265,19 @@ watch(activeFile, (path) => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.btn-edit, .btn-save, .btn-cancel {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  font-size: 10px;
+  padding: 1px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.btn-edit:hover, .btn-save:hover { color: #58a6ff; border-color: #58a6ff; }
+.btn-cancel:hover { color: #f85149; border-color: #f85149; }
 .btn-diff {
   background: #21262d;
   border: 1px solid #30363d;
@@ -218,19 +291,19 @@ watch(activeFile, (path) => {
 }
 .btn-diff:hover { color: #d2991d; border-color: #d2991d; }
 .btn-diff.active { color: #d2991d; }
-.preview-loading { padding: 20px; color: #8b949e; font-size: 12px; }
-.preview-content {
-  flex: 1;
-  overflow: auto;
-  padding: 0;
-  margin: 0;
+.save-error {
+  font-size: 10px;
+  color: #f85149;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.preview-content :deep(code) {
-  font-family: Consolas, "Courier New", monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  padding: 10px;
-  display: block;
+.preview-loading { padding: 20px; color: #8b949e; font-size: 12px; }
+.editor-wrap {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 .diff-wrap { flex: 1; overflow: auto; min-height: 0; }
 </style>
