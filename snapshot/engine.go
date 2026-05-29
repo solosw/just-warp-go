@@ -222,6 +222,9 @@ func (e *Engine) snapshotFile(relPath string) error {
 	if err != nil {
 		return err
 	}
+	if !IsTextFile(strings.ToLower(filepath.Ext(relPath)), FirstBytes(data)) {
+		return fmt.Errorf("skip binary file")
+	}
 	dst := e.snapFilePath(relPath)
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
@@ -231,6 +234,14 @@ func (e *Engine) snapshotFile(relPath string) error {
 	}
 	e.manifest.Files[relPath] = hashBytes(data)
 	return nil
+}
+
+// FirstBytes returns the first 512 bytes of data for content-type detection.
+func FirstBytes(data []byte) []byte {
+	if len(data) > 512 {
+		return data[:512]
+	}
+	return data
 }
 
 func (e *Engine) saveManifest() error {

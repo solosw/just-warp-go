@@ -691,6 +691,10 @@ func (a *App) AcceptAll() error {
 	if a.isRemote {
 		changes := a.snapEng.ChangedFilesByHash(entriesToFingerprints(a.scannedRemoteEntries))
 		for _, c := range changes {
+			if a.remoteIsBinary(c.Path) {
+				a.snapEng.SetFileHash(c.Path, entriesToFingerprints(a.scannedRemoteEntries)[c.Path])
+				continue
+			}
 			data, err := a.readRemoteFile(c.Path)
 			if err != nil {
 				continue
@@ -772,31 +776,35 @@ func (a *App) RevertAll() error {
 	return nil
 }
 
-func (a *App) AcceptFile(path string) error {
+func (a *App) AcceptFile(p string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.snapEng == nil {
 		return fmt.Errorf("未选择工作区")
 	}
 	if a.isRemote {
-		data, err := a.readRemoteFile(path)
+		data, err := a.readRemoteFile(p)
 		if err != nil {
-			// File was deleted — remove from manifest
-			a.remoteRemoveSnapshot(path)
-			a.snapEng.RemoveFromManifest([]string{path})
+			a.remoteRemoveSnapshot(p)
+			a.snapEng.RemoveFromManifest([]string{p})
 			return a.remoteSaveManifest()
 		}
-		if err := a.remoteWriteSnapshot(path, data); err != nil {
+		ext := strings.ToLower(path.Ext(p))
+		if !snapshot.IsTextFile(ext, snapshot.FirstBytes(data)) {
+			a.snapEng.SetFileHash(p, snapshot.HashBytes(data))
+			return a.remoteSaveManifest()
+		}
+		if err := a.remoteWriteSnapshot(p, data); err != nil {
 			return err
 		}
-		a.snapEng.SetFileHash(path, snapshot.HashBytes(data))
+		a.snapEng.SetFileHash(p, snapshot.HashBytes(data))
 		if err := a.remoteSaveManifest(); err != nil {
 			return err
 		}
 		a.emitChanges()
 		return nil
 	}
-	if err := a.snapEng.AcceptFile(path); err != nil {
+	if err := a.snapEng.AcceptFile(p); err != nil {
 		return err
 	}
 	a.refreshScanLocked()
