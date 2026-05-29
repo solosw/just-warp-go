@@ -282,6 +282,38 @@ func HashBytes(data []byte) string {
 	return hashBytes(data)
 }
 
+// Common binary file extensions.
+var binaryExts = map[string]bool{
+	".exe": true, ".dll": true, ".so": true, ".dylib": true,
+	".zip": true, ".tar": true, ".gz": true, ".bz2": true, ".7z": true, ".rar": true,
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".bmp": true, ".ico": true, ".webp": true, ".svg": true,
+	".mp3": true, ".mp4": true, ".avi": true, ".mov": true, ".mkv": true, ".wmv": true, ".flv": true,
+	".woff": true, ".woff2": true, ".ttf": true, ".otf": true, ".eot": true,
+	".pdf": true, ".doc": true, ".docx": true, ".xls": true, ".xlsx": true, ".ppt": true, ".pptx": true,
+	".o": true, ".obj": true, ".a": true, ".lib": true,
+	".class": true, ".pyc": true, ".pyo": true,
+	".jar": true, ".war": true, ".ear": true,
+	".db": true, ".sqlite": true, ".sqlite3": true,
+	".wasm": true,
+}
+
+// IsTextFile checks whether a file is a text file based on its extension and content.
+// ext should be the lowercase file extension (e.g. ".go").
+// peek should be the first up-to-512 bytes of the file (or nil if unavailable).
+func IsTextFile(ext string, peek []byte) bool {
+	if binaryExts[ext] {
+		return false
+	}
+	if len(peek) > 0 {
+		for _, b := range peek {
+			if b == 0 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // ChangedFilesByHash compares current hashes against stored manifest without reading files.
 func (e *Engine) ChangedFilesByHash(currentHashes map[string]string) []FileChange {
 	currentSet := make(map[string]bool, len(currentHashes))

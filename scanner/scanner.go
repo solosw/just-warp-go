@@ -5,22 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-)
 
-// binaryExts are common binary file extensions to skip.
-var binaryExts = map[string]bool{
-	".exe": true, ".dll": true, ".so": true, ".dylib": true,
-	".zip": true, ".tar": true, ".gz": true, ".bz2": true, ".7z": true, ".rar": true,
-	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".bmp": true, ".ico": true, ".webp": true, ".svg": true,
-	".mp3": true, ".mp4": true, ".avi": true, ".mov": true, ".mkv": true, ".wmv": true, ".flv": true,
-	".woff": true, ".woff2": true, ".ttf": true, ".otf": true, ".eot": true,
-	".pdf": true, ".doc": true, ".docx": true, ".xls": true, ".xlsx": true, ".ppt": true, ".pptx": true,
-	".o": true, ".obj": true, ".a": true, ".lib": true,
-	".class": true, ".pyc": true, ".pyo": true,
-	".jar": true, ".war": true, ".ear": true,
-	".db": true, ".sqlite": true, ".sqlite3": true,
-	".wasm": true,
-}
+	"just-warp-go/snapshot"
+)
 
 // skipDirs are directories always skipped during scanning.
 var skipDirs = map[string]bool{
@@ -155,10 +142,6 @@ func matchGlob(pattern, path string) bool {
 
 func isBinaryPath(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
-	if binaryExts[ext] {
-		return true
-	}
-	// Check file content for null bytes (binary indicator)
 	f, err := os.Open(path)
 	if err != nil {
 		return true
@@ -166,10 +149,5 @@ func isBinaryPath(path string) bool {
 	defer f.Close()
 	buf := make([]byte, 512)
 	n, _ := f.Read(buf)
-	for _, b := range buf[:n] {
-		if b == 0 {
-			return true
-		}
-	}
-	return false
+	return !snapshot.IsTextFile(ext, buf[:n])
 }

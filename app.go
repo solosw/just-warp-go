@@ -51,27 +51,13 @@ func entriesToFingerprints(entries []remoteFileEntry) map[string]string {
 	return m
 }
 
-// Remote file filters — mirrors scanner/scanner.go logic without file content access.
+// Remote file filters — mirrors scanner/scanner.go logic.
 var remoteSkipDirs = map[string]bool{
 	".git": true, "node_modules": true, ".warp-snapshots": true,
 	"dist": true, "build": true, ".next": true, "__pycache__": true,
 	"target": true, ".cache": true, "vendor": true, ".yarn": true,
 	".pnpm-store": true, "bower_components": true, ".turbo": true,
 	".nuxt": true, ".output": true, "coverage": true, ".nyc_output": true,
-}
-
-var remoteBinaryExts = map[string]bool{
-	".exe": true, ".dll": true, ".so": true, ".dylib": true,
-	".zip": true, ".tar": true, ".gz": true, ".bz2": true, ".7z": true, ".rar": true,
-	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".bmp": true, ".ico": true, ".webp": true, ".svg": true,
-	".mp3": true, ".mp4": true, ".avi": true, ".mov": true, ".mkv": true, ".wmv": true, ".flv": true,
-	".woff": true, ".woff2": true, ".ttf": true, ".otf": true, ".eot": true,
-	".pdf": true, ".doc": true, ".docx": true, ".xls": true, ".xlsx": true, ".ppt": true, ".pptx": true,
-	".o": true, ".obj": true, ".a": true, ".lib": true,
-	".class": true, ".pyc": true, ".pyo": true,
-	".jar": true, ".war": true, ".ear": true,
-	".db": true, ".sqlite": true, ".sqlite3": true,
-	".wasm": true,
 }
 
 func isRemoteNoise(relPath string, isDir bool) bool {
@@ -81,15 +67,28 @@ func isRemoteNoise(relPath string, isDir bool) bool {
 			return true
 		}
 	}
-	// Check if any parent segment is a noise/hidden dir
 	for _, seg := range strings.Split(relPath, "/") {
 		if remoteSkipDirs[seg] || (strings.HasPrefix(seg, ".") && seg != ".." && seg != "." && seg != ".gitignore") {
 			return true
 		}
 	}
-	// Check binary extension
+	// Extension-only filter for fast scanning (no download)
 	ext := strings.ToLower(path.Ext(relPath))
-	return remoteBinaryExts[ext]
+	return !snapshot.IsTextFile(ext, nil)
+}
+
+// remoteIsBinary performs content-based binary check by reading the first bytes of a remote file.
+func (a *App) remoteIsBinary(relPath string) bool {
+	ext := strings.ToLower(path.Ext(relPath))
+	rp := path.Join(a.remotePath, relPath)
+	r, err := a.remoteSFTP.Open(rp)
+	if err != nil {
+		return true
+	}
+	defer r.Close()
+	buf := make([]byte, 512)
+	n, _ := r.Read(buf)
+	return !snapshot.IsTextFile(ext, buf[:n])
 }
 
 // App is the main application struct with bound methods.
@@ -582,6 +581,9 @@ func (a *App) readRemoteFileRaw(fullPath string) ([]byte, error) {
 // remoteInitSnapshots copies all text files to remote .warp-snapshots.
 func (a *App) remoteInitSnapshots(entries []remoteFileEntry) error {
 	for _, e := range entries {
+		if a.remoteIsBinary(e.path) {
+			continue
+		}
 		data, err := a.readRemoteFile(e.path)
 		if err != nil {
 			continue
