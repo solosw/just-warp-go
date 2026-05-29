@@ -325,6 +325,44 @@ func IsTextFile(ext string, peek []byte) bool {
 	return true
 }
 
+// DiffStats computes line additions and deletions between old and new content.
+func DiffStats(oldData, newData []byte) (additions, deletions int) {
+	oldLines := readLinesFromBytes(oldData)
+	newLines := readLinesFromBytes(newData)
+	oldCount := make(map[string]int, len(oldLines))
+	for _, l := range oldLines {
+		oldCount[l]++
+	}
+	newCount := make(map[string]int, len(newLines))
+	for _, l := range newLines {
+		newCount[l]++
+	}
+	for l, n := range newCount {
+		o := oldCount[l]
+		if n > o {
+			additions += n - o
+		}
+	}
+	for l, o := range oldCount {
+		n := newCount[l]
+		if o > n {
+			deletions += o - n
+		}
+	}
+	return
+}
+
+func readLinesFromBytes(data []byte) []string {
+	if len(data) == 0 {
+		return nil
+	}
+	text := strings.TrimSuffix(string(data), "\n")
+	if text == "" {
+		return nil
+	}
+	return strings.Split(text, "\n")
+}
+
 // ChangedFilesByHash compares current hashes against stored manifest without reading files.
 func (e *Engine) ChangedFilesByHash(currentHashes map[string]string) []FileChange {
 	currentSet := make(map[string]bool, len(currentHashes))

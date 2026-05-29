@@ -606,6 +606,25 @@ func (a *App) remoteInitSnapshots(entries []remoteFileEntry) error {
 	return a.remoteSaveManifest()
 }
 
+// remoteChangedFiles returns changes with line stats.
+func (a *App) remoteChangedFiles() []snapshot.FileChange {
+	changes := a.snapEng.ChangedFilesByHash(entriesToFingerprints(a.scannedRemoteEntries))
+	for i, c := range changes {
+		var oldData, newData []byte
+		switch c.Status {
+		case snapshot.StatusAdded:
+			newData, _ = a.readRemoteFile(c.Path)
+		case snapshot.StatusModified:
+			oldData, _ = a.remoteReadSnapshot(c.Path)
+			newData, _ = a.readRemoteFile(c.Path)
+		case snapshot.StatusDeleted:
+			oldData, _ = a.remoteReadSnapshot(c.Path)
+		}
+		changes[i].Additions, changes[i].Deletions = snapshot.DiffStats(oldData, newData)
+	}
+	return changes
+}
+
 func (a *App) GetWorkspaceHistory() []config.WorkspaceEntry {
 	if a.cfgStore == nil {
 		return nil
@@ -633,7 +652,7 @@ func (a *App) GetWorkspaceInfo() *WorkspaceInfo {
 func (a *App) makeWorkspaceInfo() *WorkspaceInfo {
 	var changes []snapshot.FileChange
 	if a.isRemote {
-		changes = a.snapEng.ChangedFilesByHash(entriesToFingerprints(a.scannedRemoteEntries))
+		changes = a.remoteChangedFiles()
 	} else {
 		changes = a.snapEng.ChangedFiles(a.scannedFiles)
 	}
@@ -671,7 +690,7 @@ func (a *App) onFileChanged() {
 	}
 	var changes []snapshot.FileChange
 	if a.isRemote {
-		changes = a.snapEng.ChangedFilesByHash(entriesToFingerprints(a.scannedRemoteEntries))
+		changes = a.remoteChangedFiles()
 	} else {
 		changes = a.snapEng.ChangedFiles(a.scannedFiles)
 	}
@@ -687,7 +706,7 @@ func (a *App) GetChangedFiles() []snapshot.FileChange {
 		return nil
 	}
 	if a.isRemote {
-		return a.snapEng.ChangedFilesByHash(entriesToFingerprints(a.scannedRemoteEntries))
+		return a.remoteChangedFiles()
 	}
 	return a.snapEng.ChangedFiles(a.scannedFiles)
 }
@@ -1080,7 +1099,7 @@ func (a *App) refreshScanLocked() {
 func (a *App) emitChanges() {
 	var changes []snapshot.FileChange
 	if a.isRemote {
-		changes = a.snapEng.ChangedFilesByHash(entriesToFingerprints(a.scannedRemoteEntries))
+		changes = a.remoteChangedFiles()
 	} else {
 		changes = a.snapEng.ChangedFiles(a.scannedFiles)
 	}
