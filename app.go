@@ -77,6 +77,16 @@ func isRemoteNoise(relPath string, isDir bool) bool {
 	return !snapshot.IsTextFile(ext, nil)
 }
 
+// fingerprintFor returns the fingerprint for a file from the scanned remote entries.
+func (a *App) fingerprintFor(relPath string) string {
+	for _, e := range a.scannedRemoteEntries {
+		if e.path == relPath {
+			return e.fingerprint()
+		}
+	}
+	return ""
+}
+
 // remoteIsBinary performs content-based binary check by reading the first bytes of a remote file.
 func (a *App) remoteIsBinary(relPath string) bool {
 	ext := strings.ToLower(path.Ext(relPath))
@@ -591,7 +601,7 @@ func (a *App) remoteInitSnapshots(entries []remoteFileEntry) error {
 		if err := a.remoteWriteSnapshot(e.path, data); err != nil {
 			return err
 		}
-		a.snapEng.SetFileHash(e.path, snapshot.HashBytes(data))
+		a.snapEng.SetFileHash(e.path, e.fingerprint())
 	}
 	return a.remoteSaveManifest()
 }
@@ -689,10 +699,11 @@ func (a *App) AcceptAll() error {
 		return fmt.Errorf("未选择工作区")
 	}
 	if a.isRemote {
-		changes := a.snapEng.ChangedFilesByHash(entriesToFingerprints(a.scannedRemoteEntries))
+		fps := entriesToFingerprints(a.scannedRemoteEntries)
+		changes := a.snapEng.ChangedFilesByHash(fps)
 		for _, c := range changes {
 			if a.remoteIsBinary(c.Path) {
-				a.snapEng.SetFileHash(c.Path, entriesToFingerprints(a.scannedRemoteEntries)[c.Path])
+				a.snapEng.SetFileHash(c.Path, fps[c.Path])
 				continue
 			}
 			data, err := a.readRemoteFile(c.Path)
@@ -702,7 +713,7 @@ func (a *App) AcceptAll() error {
 			if err := a.remoteWriteSnapshot(c.Path, data); err != nil {
 				return err
 			}
-			a.snapEng.SetFileHash(c.Path, snapshot.HashBytes(data))
+			a.snapEng.SetFileHash(c.Path, fps[c.Path])
 		}
 		if err := a.remoteSaveManifest(); err != nil {
 			return err
@@ -734,16 +745,8 @@ func (a *App) RevertAll() error {
 		for _, c := range changes {
 			snapData, err := a.remoteReadSnapshot(c.Path)
 			if err != nil {
-				// No snapshot — just accept current state
-				for _, e := range a.scannedRemoteEntries {
-					if e.path == c.Path {
-						a.snapEng.SetFileHash(c.Path, e.fingerprint())
-						break
-					}
-				}
-				continue
+				continue // no snapshot, skip
 			}
-			// Restore file from snapshot
 			rp := path.Join(a.remotePath, c.Path)
 			f, err := a.remoteSFTP.Create(rp)
 			if err != nil {
@@ -754,12 +757,14 @@ func (a *App) RevertAll() error {
 				return err
 			}
 			f.Close()
-			a.snapEng.SetFileHash(c.Path, snapshot.HashBytes(snapData))
+		}
+		a.refreshScanLocked()
+		for _, c := range changes {
+			a.snapEng.SetFileHash(c.Path, a.fingerprintFor(c.Path))
 		}
 		if err := a.remoteSaveManifest(); err != nil {
 			return err
 		}
-		a.refreshScanLocked()
 		a.emitChanges()
 		return nil
 	}
@@ -790,14 +795,15 @@ func (a *App) AcceptFile(p string) error {
 			return a.remoteSaveManifest()
 		}
 		ext := strings.ToLower(path.Ext(p))
+		fp := a.fingerprintFor(p)
 		if !snapshot.IsTextFile(ext, snapshot.FirstBytes(data)) {
-			a.snapEng.SetFileHash(p, snapshot.HashBytes(data))
+			a.snapEng.SetFileHash(p, fp)
 			return a.remoteSaveManifest()
 		}
 		if err := a.remoteWriteSnapshot(p, data); err != nil {
 			return err
 		}
-		a.snapEng.SetFileHash(p, snapshot.HashBytes(data))
+		a.snapEng.SetFileHash(p, fp)
 		if err := a.remoteSaveManifest(); err != nil {
 			return err
 		}
@@ -821,13 +827,6 @@ func (a *App) RevertFile(p string) error {
 	if a.isRemote {
 		snapData, err := a.remoteReadSnapshot(p)
 		if err != nil {
-			// No snapshot — accept current state
-			for _, e := range a.scannedRemoteEntries {
-				if e.path == p {
-					a.snapEng.SetFileHash(p, e.fingerprint())
-					break
-				}
-			}
 			return a.remoteSaveManifest()
 		}
 		rp := path.Join(a.remotePath, p)
@@ -841,11 +840,11 @@ func (a *App) RevertFile(p string) error {
 			return err
 		}
 		f.Close()
-		a.snapEng.SetFileHash(p, snapshot.HashBytes(snapData))
+		a.refreshScanLocked()
+		a.snapEng.SetFileHash(p, a.fingerprintFor(p))
 		if err := a.remoteSaveManifest(); err != nil {
 			return err
 		}
-		a.refreshScanLocked()
 		a.emitChanges()
 		return nil
 	}
@@ -921,14 +920,12 @@ func (a *App) SaveFile(relPath, content string) error {
 			return fmt.Errorf("写入远程文件失败: %w", err)
 		}
 		f.Close()
-		// Update snapshot and manifest
-		newHash := snapshot.HashBytes([]byte(content))
 		a.remoteWriteSnapshot(relPath, []byte(content))
-		a.snapEng.SetFileHash(relPath, newHash)
+		a.refreshScanLocked()
+		a.snapEng.SetFileHash(relPath, a.fingerprintFor(relPath))
 		if err := a.remoteSaveManifest(); err != nil {
 			return fmt.Errorf("更新清单失败: %w", err)
 		}
-		a.refreshScanLocked()
 		a.emitChanges()
 		return nil
 	}
