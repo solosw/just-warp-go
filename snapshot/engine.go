@@ -282,38 +282,6 @@ func HashBytes(data []byte) string {
 	return hashBytes(data)
 }
 
-// InitHashOnly stores hashes without copying files (for remote workspaces).
-func (e *Engine) InitHashOnly(hashes map[string]string) error {
-	if err := os.MkdirAll(e.snapPath, 0755); err != nil {
-		return err
-	}
-	for path, hash := range hashes {
-		e.manifest.Files[path] = hash
-	}
-	return e.saveManifest()
-}
-
-// SetStorageDir creates the snapshot directory with a custom-basedir prefix.
-// Used for remote workspaces where .warp-snapshots lives in config dir.
-func (e *Engine) SetStorageDir() error {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return err
-	}
-	e.snapPath = filepath.Join(dir, "just-warp-go", "snapshots", e.workspace)
-	e.workspace = e.snapPath // manifest reads from snapPath
-	return os.MkdirAll(e.snapPath, 0755)
-}
-
-// GetSnapshotContent returns the raw bytes of a snapshot file (if it exists).
-func (e *Engine) GetSnapshotContent(path string) []byte {
-	data, err := os.ReadFile(e.snapFilePath(path))
-	if err != nil {
-		return nil
-	}
-	return data
-}
-
 // ChangedFilesByHash compares current hashes against stored manifest without reading files.
 func (e *Engine) ChangedFilesByHash(currentHashes map[string]string) []FileChange {
 	currentSet := make(map[string]bool, len(currentHashes))
@@ -337,12 +305,20 @@ func (e *Engine) ChangedFilesByHash(currentHashes map[string]string) []FileChang
 	return changes
 }
 
-// AcceptHashes updates manifest entries without reading files (for remote).
-func (e *Engine) AcceptHashes(hashes map[string]string) error {
-	for path, h := range hashes {
-		e.manifest.Files[path] = h
-	}
-	return e.saveManifest()
+// SetFileHash sets a single file hash in the manifest in-memory (does not save).
+func (e *Engine) SetFileHash(path, hash string) {
+	e.manifest.Files[path] = hash
+}
+
+// LoadManifestFrom parses manifest JSON from bytes.
+func (e *Engine) LoadManifestFrom(data []byte) error {
+	e.manifest = &Manifest{}
+	return json.Unmarshal(data, e.manifest)
+}
+
+// MarshalManifest returns the manifest as JSON bytes.
+func (e *Engine) MarshalManifest() ([]byte, error) {
+	return json.MarshalIndent(e.manifest, "", "  ")
 }
 
 // RemoveFromManifest deletes entries from manifest (for remote revert).

@@ -347,12 +347,10 @@ func (a *App) OpenRemoteWorkspace(cfg SSHConfig, remotePath string) (*WorkspaceI
 	if cfg.Port == 0 {
 		cfg.Port = 22
 	}
-	// Look up saved credentials if re-opening from history (RemoteWorkspaceEntry has no password/keyPath)
 	if cfg.Password == "" && cfg.KeyPath == "" && a.cfgStore != nil {
 		configs, err := a.cfgStore.LoadSSHConfigs()
 		if err == nil {
 			for _, c := range configs {
-				// Match exact or composite name (Name may be "SSH:/path" from re-open)
 				if c.Name == cfg.Name || strings.HasPrefix(cfg.Name, c.Name+":") {
 					cfg.Password = c.Password
 					cfg.KeyPath = c.KeyPath
@@ -403,27 +401,24 @@ func (a *App) OpenRemoteWorkspace(cfg SSHConfig, remotePath string) (*WorkspaceI
 	a.scannedRemoteEntries = entries
 	a.scannedFiles = entriesToPaths(entries)
 
-	// Manifest stored in config dir (hash-only, no file copies)
-	wsID := sanitizeID(cfg.Host + "_" + remotePath)
-	a.snapEng = snapshot.NewEngine(wsID)
-	if err := a.snapEng.SetStorageDir(); err != nil {
-		return nil, err
+	// Load manifest from remote .warp-snapshots/
+	if err := a.remoteLoadManifest(); err != nil {
+		sftpClient.Close()
+		client.Close()
+		return nil, fmt.Errorf("加载远程清单失败: %w", err)
 	}
-	if err := a.snapEng.LoadManifest(); err != nil {
-		return nil, err
-	}
-	// Clean stale single-segment directory entries from older manifests
 	a.snapEng.FilterManifest(func(p string) bool {
 		ext := filepath.Ext(p)
 		if ext != "" {
-			return true // has extension, likely a file
+			return true
 		}
-		return strings.Contains(p, "/") // keep if nested, drop if root-level bare name
+		return strings.Contains(p, "/")
 	})
 	if !a.snapEng.HasSnapshot() {
-		hashes := entriesToFingerprints(entries)
-		if err := a.snapEng.InitHashOnly(hashes); err != nil {
-			return nil, err
+		if err := a.remoteSnapshotAll(entries); err != nil {
+			sftpClient.Close()
+			client.Close()
+			return nil, fmt.Errorf("创建远程快照失败: %w", err)
 		}
 	}
 
@@ -506,12 +501,99 @@ func (a *App) readRemoteFile(relPath string) ([]byte, error) {
 	return io.ReadAll(r)
 }
 
-func (a *App) readRemoteHash(relPath string) (string, error) {
-	data, err := a.readRemoteFile(relPath)
+// ─── Remote Snapshot Helpers ─────────────────────────
+
+func (a *App) remoteSnapPath(relPath string) string {
+	return path.Join(a.remotePath, ".warp-snapshots", relPath)
+}
+
+func (a *App) remoteReadSnapshot(relPath string) ([]byte, error) {
+	r, err := a.remoteSFTP.Open(a.remoteSnapPath(relPath))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return snapshot.HashBytes(data), nil
+	defer r.Close()
+	return io.ReadAll(r)
+}
+
+func (a *App) remoteWriteSnapshot(relPath string, data []byte) error {
+	rp := a.remoteSnapPath(relPath)
+	if err := a.remoteSFTP.MkdirAll(path.Dir(rp)); err != nil {
+		return err
+	}
+	f, err := a.remoteSFTP.Create(rp)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(data)
+	return err
+}
+
+func (a *App) remoteRemoveSnapshot(relPath string) error {
+	return a.remoteSFTP.Remove(a.remoteSnapPath(relPath))
+}
+
+func (a *App) remoteRemoveSnapshotDir() {
+	// best-effort cleanup
+	a.remoteSFTP.RemoveDirectory(path.Join(a.remotePath, ".warp-snapshots"))
+}
+
+func (a *App) remoteLoadManifest() error {
+	rp := path.Join(a.remotePath, ".warp-snapshots", "manifest.json")
+	data, err := a.readRemoteFileRaw(rp)
+	if err != nil {
+		// If manifest doesn't exist on remote, start fresh
+		a.snapEng = snapshot.NewEngine(a.workspace)
+		return nil
+	}
+	a.snapEng = snapshot.NewEngine(a.workspace)
+	return a.snapEng.LoadManifestFrom(data)
+}
+
+func (a *App) remoteSaveManifest() error {
+	data, err := a.snapEng.MarshalManifest()
+	if err != nil {
+		return err
+	}
+	rp := path.Join(a.remotePath, ".warp-snapshots", "manifest.json")
+	a.remoteSFTP.MkdirAll(path.Dir(rp))
+	f, err := a.remoteSFTP.Create(rp)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(data)
+	return err
+}
+
+// readRemoteFileRaw reads a file by its full remote path (not relative to workspace).
+func (a *App) readRemoteFileRaw(fullPath string) ([]byte, error) {
+	r, err := a.remoteSFTP.Open(fullPath)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return io.ReadAll(r)
+}
+
+// remoteSnapshotAll copies all text files to remote .warp-snapshots.
+func (a *App) remoteSnapshotAll(entries []remoteFileEntry) error {
+	snapDir := path.Join(a.remotePath, ".warp-snapshots")
+	if err := a.remoteSFTP.MkdirAll(snapDir); err != nil {
+		return err
+	}
+	for _, e := range entries {
+		data, err := a.readRemoteFile(e.path)
+		if err != nil {
+			continue
+		}
+		if err := a.remoteWriteSnapshot(e.path, data); err != nil {
+			return err
+		}
+		a.snapEng.SetFileHash(e.path, snapshot.HashBytes(data))
+	}
+	return a.remoteSaveManifest()
 }
 
 func (a *App) GetWorkspaceHistory() []config.WorkspaceEntry {
@@ -607,8 +689,18 @@ func (a *App) AcceptAll() error {
 		return fmt.Errorf("未选择工作区")
 	}
 	if a.isRemote {
-		hashes := entriesToFingerprints(a.scannedRemoteEntries)
-		if err := a.snapEng.AcceptHashes(hashes); err != nil {
+		changes := a.snapEng.ChangedFilesByHash(entriesToFingerprints(a.scannedRemoteEntries))
+		for _, c := range changes {
+			data, err := a.readRemoteFile(c.Path)
+			if err != nil {
+				continue
+			}
+			if err := a.remoteWriteSnapshot(c.Path, data); err != nil {
+				return err
+			}
+			a.snapEng.SetFileHash(c.Path, snapshot.HashBytes(data))
+		}
+		if err := a.remoteSaveManifest(); err != nil {
 			return err
 		}
 		a.emitChanges()
@@ -634,10 +726,36 @@ func (a *App) RevertAll() error {
 		return fmt.Errorf("未选择工作区")
 	}
 	if a.isRemote {
-		hashes := entriesToFingerprints(a.scannedRemoteEntries)
-		if err := a.snapEng.AcceptHashes(hashes); err != nil {
+		changes := a.snapEng.ChangedFilesByHash(entriesToFingerprints(a.scannedRemoteEntries))
+		for _, c := range changes {
+			snapData, err := a.remoteReadSnapshot(c.Path)
+			if err != nil {
+				// No snapshot — just accept current state
+				for _, e := range a.scannedRemoteEntries {
+					if e.path == c.Path {
+						a.snapEng.SetFileHash(c.Path, e.fingerprint())
+						break
+					}
+				}
+				continue
+			}
+			// Restore file from snapshot
+			rp := path.Join(a.remotePath, c.Path)
+			f, err := a.remoteSFTP.Create(rp)
+			if err != nil {
+				return err
+			}
+			if _, err := f.Write(snapData); err != nil {
+				f.Close()
+				return err
+			}
+			f.Close()
+			a.snapEng.SetFileHash(c.Path, snapshot.HashBytes(snapData))
+		}
+		if err := a.remoteSaveManifest(); err != nil {
 			return err
 		}
+		a.refreshScanLocked()
 		a.emitChanges()
 		return nil
 	}
@@ -661,12 +779,22 @@ func (a *App) AcceptFile(path string) error {
 		return fmt.Errorf("未选择工作区")
 	}
 	if a.isRemote {
-		for _, e := range a.scannedRemoteEntries {
-			if e.path == path {
-				return a.snapEng.AcceptHashes(map[string]string{path: e.fingerprint()})
-			}
+		data, err := a.readRemoteFile(path)
+		if err != nil {
+			// File was deleted — remove from manifest
+			a.remoteRemoveSnapshot(path)
+			a.snapEng.RemoveFromManifest([]string{path})
+			return a.remoteSaveManifest()
 		}
-		return a.snapEng.RemoveFromManifest([]string{path})
+		if err := a.remoteWriteSnapshot(path, data); err != nil {
+			return err
+		}
+		a.snapEng.SetFileHash(path, snapshot.HashBytes(data))
+		if err := a.remoteSaveManifest(); err != nil {
+			return err
+		}
+		a.emitChanges()
+		return nil
 	}
 	if err := a.snapEng.AcceptFile(path); err != nil {
 		return err
@@ -676,21 +804,44 @@ func (a *App) AcceptFile(path string) error {
 	return nil
 }
 
-func (a *App) RevertFile(path string) error {
+func (a *App) RevertFile(p string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.snapEng == nil {
 		return fmt.Errorf("未选择工作区")
 	}
 	if a.isRemote {
-		for _, e := range a.scannedRemoteEntries {
-			if e.path == path {
-				return a.snapEng.AcceptHashes(map[string]string{path: e.fingerprint()})
+		snapData, err := a.remoteReadSnapshot(p)
+		if err != nil {
+			// No snapshot — accept current state
+			for _, e := range a.scannedRemoteEntries {
+				if e.path == p {
+					a.snapEng.SetFileHash(p, e.fingerprint())
+					break
+				}
 			}
+			return a.remoteSaveManifest()
 		}
-		return a.snapEng.RemoveFromManifest([]string{path})
+		rp := path.Join(a.remotePath, p)
+		a.remoteSFTP.MkdirAll(path.Dir(rp))
+		f, err := a.remoteSFTP.Create(rp)
+		if err != nil {
+			return err
+		}
+		if _, err := f.Write(snapData); err != nil {
+			f.Close()
+			return err
+		}
+		f.Close()
+		a.snapEng.SetFileHash(p, snapshot.HashBytes(snapData))
+		if err := a.remoteSaveManifest(); err != nil {
+			return err
+		}
+		a.refreshScanLocked()
+		a.emitChanges()
+		return nil
 	}
-	if err := a.snapEng.RevertFile(path); err != nil {
+	if err := a.snapEng.RevertFile(p); err != nil {
 		return err
 	}
 	a.refreshScanLocked()
@@ -709,7 +860,10 @@ func (a *App) GetFileDiff(path string) (map[string]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		oldData := a.snapEng.GetSnapshotContent(path)
+		oldData, err := a.remoteReadSnapshot(path)
+		if err != nil {
+			oldData = nil // new file, no snapshot
+		}
 		return map[string]string{
 			"old": string(oldData),
 			"new": string(newData),
@@ -749,6 +903,7 @@ func (a *App) SaveFile(relPath, content string) error {
 			return fmt.Errorf("远程连接不可用")
 		}
 		rp := path.Join(a.remotePath, relPath)
+		a.remoteSFTP.MkdirAll(path.Dir(rp))
 		f, err := a.remoteSFTP.Create(rp)
 		if err != nil {
 			return fmt.Errorf("写入远程文件失败: %w", err)
@@ -757,8 +912,12 @@ func (a *App) SaveFile(relPath, content string) error {
 		if _, err := f.Write([]byte(content)); err != nil {
 			return fmt.Errorf("写入远程文件失败: %w", err)
 		}
+		f.Close()
+		// Update snapshot and manifest
 		newHash := snapshot.HashBytes([]byte(content))
-		if err := a.snapEng.AcceptHashes(map[string]string{relPath: newHash}); err != nil {
+		a.remoteWriteSnapshot(relPath, []byte(content))
+		a.snapEng.SetFileHash(relPath, newHash)
+		if err := a.remoteSaveManifest(); err != nil {
 			return fmt.Errorf("更新清单失败: %w", err)
 		}
 		a.refreshScanLocked()
@@ -772,9 +931,8 @@ func (a *App) SaveFile(relPath, content string) error {
 	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("保存文件失败: %w", err)
 	}
-	newHash := snapshot.HashBytes([]byte(content))
-	if err := a.snapEng.AcceptHashes(map[string]string{relPath: newHash}); err != nil {
-		return fmt.Errorf("更新清单失败: %w", err)
+	if err := a.snapEng.AcceptFile(relPath); err != nil {
+		return fmt.Errorf("更新快照失败: %w", err)
 	}
 	a.refreshScanLocked()
 	a.emitChanges()
@@ -924,9 +1082,3 @@ func (a *App) emitChanges() {
 	runtime.EventsEmit(a.ctx, "file-changes", changes)
 }
 
-func sanitizeID(s string) string {
-	s = strings.ReplaceAll(s, "/", "_")
-	s = strings.ReplaceAll(s, "\\", "_")
-	s = strings.ReplaceAll(s, ":", "_")
-	return s
-}
