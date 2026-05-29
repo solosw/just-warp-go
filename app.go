@@ -400,22 +400,24 @@ func (a *App) OpenRemoteWorkspace(cfg SSHConfig, remotePath string) (*WorkspaceI
 	a.remoteSSHCfg = tCfg
 	a.scannedRemoteEntries = entries
 	a.scannedFiles = entriesToPaths(entries)
+	a.snapEng = snapshot.NewEngine(remotePath)
 
-	// Load manifest from remote .warp-snapshots/
+	// Ensure .warp-snapshots/ exists on remote
+	snapDir := path.Join(a.remotePath, ".warp-snapshots")
+	if err := sftpClient.MkdirAll(snapDir); err != nil {
+		sftpClient.Close()
+		client.Close()
+		return nil, fmt.Errorf("创建远程快照目录失败: %w", err)
+	}
+
+	// Load manifest from remote; if absent init fresh
 	if err := a.remoteLoadManifest(); err != nil {
 		sftpClient.Close()
 		client.Close()
 		return nil, fmt.Errorf("加载远程清单失败: %w", err)
 	}
-	a.snapEng.FilterManifest(func(p string) bool {
-		ext := filepath.Ext(p)
-		if ext != "" {
-			return true
-		}
-		return strings.Contains(p, "/")
-	})
 	if !a.snapEng.HasSnapshot() {
-		if err := a.remoteSnapshotAll(entries); err != nil {
+		if err := a.remoteInitSnapshots(entries); err != nil {
 			sftpClient.Close()
 			client.Close()
 			return nil, fmt.Errorf("创建远程快照失败: %w", err)
@@ -577,12 +579,8 @@ func (a *App) readRemoteFileRaw(fullPath string) ([]byte, error) {
 	return io.ReadAll(r)
 }
 
-// remoteSnapshotAll copies all text files to remote .warp-snapshots.
-func (a *App) remoteSnapshotAll(entries []remoteFileEntry) error {
-	snapDir := path.Join(a.remotePath, ".warp-snapshots")
-	if err := a.remoteSFTP.MkdirAll(snapDir); err != nil {
-		return err
-	}
+// remoteInitSnapshots copies all text files to remote .warp-snapshots.
+func (a *App) remoteInitSnapshots(entries []remoteFileEntry) error {
 	for _, e := range entries {
 		data, err := a.readRemoteFile(e.path)
 		if err != nil {
