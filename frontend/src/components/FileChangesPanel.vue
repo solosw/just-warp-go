@@ -5,6 +5,7 @@ import { useFileChangesStore } from '../stores/fileChanges'
 import { useWorkspaceStore } from '../stores/workspace'
 import { snapshot } from '../../wailsjs/go/models'
 import { detectLang } from '../utils/detectLang'
+import { getFileIcon } from '../utils/fileIcon'
 import type { FileDiff } from '../types'
 
 const store = useFileChangesStore()
@@ -76,6 +77,7 @@ function closeDiff() {
         :class="statusClass[f.status]"
         @click="showDiff(f)"
       >
+        <span class="file-icon">{{ getFileIcon(f.path) }}</span>
         <span class="status-badge">{{ statusLabel[f.status] }}</span>
         <span class="file-path">{{ f.path }}</span>
         <span class="diff-stats">
@@ -170,6 +172,7 @@ function closeDiff() {
 .status-added .status-badge { color: #4caf50; }
 .status-modified .status-badge { color: #ff9800; }
 .status-deleted .status-badge { color: #f44336; }
+.file-icon { flex-shrink: 0; font-size: 13px; }
 .file-path {
   flex: 1;
   overflow: hidden;

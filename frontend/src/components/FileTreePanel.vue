@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, reactive } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
+import { getFileIcon } from '../utils/fileIcon'
 
 const ws = useWorkspaceStore()
 
@@ -127,9 +128,11 @@ function isExpanded(node: TreeNode): boolean {
 
 function getIcon(node: TreeNode): string {
   if (node.name === '..') return '\u{1F519}'
-  if (!node.isDir) return '\u{1F4C4}'
-  if (node.loading) return '\u{23F3}'
-  return isExpanded(node) ? '\u{1F4C2}' : '\u{1F4C1}'
+  if (node.isDir) {
+    if (node.loading) return '\u{23F3}'
+    return isExpanded(node) ? '\u{1F4C2}' : '\u{1F4C1}'
+  }
+  return getFileIcon(node.name)
 }
 
 function renderTree(nodes: TreeNode[], depth: number = 0): FlatNode[] {

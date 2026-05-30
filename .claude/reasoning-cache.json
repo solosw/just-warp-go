@@ -1,7 +1,7 @@
 {
   "version": 2,
   "note": "DeepSeek V4 reasoning_content cache for the OpenCode Go Claude Code bridge. It is required for thinking-mode tool-call history replay.",
-  "updatedAt": 1779968339984,
+  "updatedAt": 1780118233302,
   "maxEntriesPerBucket": 0,
   "maxAgeMs": 2592000000,
   "maxSizeBytes": 209715200,
@@ -3341,6 +3341,50 @@
     "call_00_XhV10Jp6jF22B3PDTLt45979": {
       "reasoning": "Let me verify the final App.vue looks correct.",
       "updatedAt": 1779968329127
+    },
+    "call_00_VXCjiSAjkx2ff5gQOQ3o4634": {
+      "reasoning": "The user wants file icons in the file tree and file changes panel based on file extensions/languages. This is a frontend task. Let me look at the current FileTreePanel and FileChangesPanel components to understand the current UI.",
+      "updatedAt": 1780118224195
+    },
+    "call_01_Xr8FKls6bjqzu6sfAPWB4025": {
+      "reasoning": "The user wants file icons in the file tree and file changes panel based on file extensions/languages. This is a frontend task. Let me look at the current FileTreePanel and FileChangesPanel components to understand the current UI.",
+      "updatedAt": 1780118224195
+    },
+    "call_00_XB9BCM5s4FY6LaZjOqqj5782": {
+      "reasoning": "Now I understand the current UI. Currently:\n\n1. **FileTreePanel**: Uses emoji icons for files (📄) and folders (📁/📂). The `getIcon()` function only returns generic folder/file emojis.\n\n2. **FileChangesPanel**: Shows file paths with status badges (+新增, ~修改, -删除) and +N/-M stats, but NO icons.\n\nThe user wants language-specific file icons. The simplest approach is to create an icon mapping utility that returns an appropriate icon (emoji or Unicode character) based on the file extension, similar to how VS Code or file explorers show different icons for different file types.\n\nI can use a simple emoji-based approach:\n- `.ts`, `.tsx` → 🔷 (TypeScript blue)\n- `.js`, `.jsx` → 🟨 (JavaScript yellow)\n- `.vue` → 💚 (Vue green)\n- `.css`, `.scss` → 🎨\n- `.html` → 🌐\n- `.json` → 📋\n- `.md` → 📝\n- `.go` → 🔵\n- `.py` → 🐍\n- `.rs` → ⚙️\n- `.java` → ☕\n- etc.\n\nOr I could use Unicode file icons similar to what popular editors use. Let me create a utility function `getFileIcon(fileName: string): string` that maps extensions to icons.\n\nI'll create a simple utility in `frontend/src/utils/fileIcon.ts` and use it in both `FileTreePanel.vue` and `FileChangesPanel.vue`.\n\nLet me implement this.",
+      "updatedAt": 1780118224196
+    },
+    "call_00_YpivKypT6g1bkPH4R8gy2654": {
+      "reasoning": "Now update FileTreePanel.vue to use `getFileIcon` instead of the generic emoji icons in `getIcon()`.",
+      "updatedAt": 1780118224196
+    },
+    "call_00_dVmQxB8Wui5tLLzUkUB67955": {
+      "reasoning": "Now update the getIcon function.",
+      "updatedAt": 1780118224196
+    },
+    "call_00_z5T0rAHfmh47I96grAdA0159": {
+      "reasoning": "Now update FileChangesPanel.vue to add file icons.",
+      "updatedAt": 1780118224196
+    },
+    "call_00_02p1ky4v08B3Cbp0D9wW9749": {
+      "reasoning": "Now add the icon in the template, right before the file path span.",
+      "updatedAt": 1780118224196
+    },
+    "call_00_t9t55mTtPJqizwrZpU059102": {
+      "reasoning": "Now add the CSS for the file-icon class in FileChangesPanel.",
+      "updatedAt": 1780118224196
+    },
+    "call_00_3iGQ1nm8Lu0IJeKs1JYN9281": {
+      "reasoning": "Now let me build the frontend to verify.",
+      "updatedAt": 1780118224196
+    },
+    "call_00_bA65GNhSAFAZ4svoQgT98992": {
+      "reasoning": "Need to use full path or the npm script.",
+      "updatedAt": 1780118224196
+    },
+    "call_00_T1SxUwTkOxPHGLQoIVrL8012": {
+      "reasoning": "Build succeeds. Let me commit.",
+      "updatedAt": 1780118233145
     }
   },
   "assistantTextReasoning": {
@@ -4291,6 +4335,26 @@
     "5ff7f339178a120cbca2070818f2aecfa0f23d8e5ba1301e1a2a78211bba4509": {
       "reasoning": "Good, the code looks correct. Let me verify the Go side compiles and summarize.\n\nThe flow now:\n1. `CreateTerminal()` → Go creates PTY, starts shell, returns id\n2. `addSSHTab(id, ...)` → Vue reacts, creates TerminalView component\n3. `await nextTick()` → wait for DOM update\n4. `await sleep(100)` → wait for TerminalView's `onMounted` to complete (async nextTick + xterm setup + subscription)\n5. `WriteToTerminal(id, 'cd \"path\"\\nstartup-cmd\\n')` → sends commands\n6. TerminalView is subscribed, receives and displays all output\n\nThis ensures:\n- TerminalView is fully initialized and subscribed before we send any commands\n- cd output + startup command output are all captured and displayed\n- The user sees: shell prompt → cd command → new prompt in workspace → startup command → startup command output",
       "updatedAt": 1779968339833
+    },
+    "776de9cb9190935b4d742ba411b6664b8ef6ff6572baea2f6960e1a27ddde6c3": {
+      "reasoning": "The user wants file icons in the file tree and file changes panel based on file extensions/languages. This is a frontend task. Let me look at the current FileTreePanel and FileChangesPanel components to understand the current UI.",
+      "updatedAt": 1780118130464
+    },
+    "8b5aae2f0277cbef7712c7744597c33c67463b488e8376124f8a0beae80efde8": {
+      "reasoning": "Now I understand the current UI. Currently:\n\n1. **FileTreePanel**: Uses emoji icons for files (📄) and folders (📁/📂). The `getIcon()` function only returns generic folder/file emojis.\n\n2. **FileChangesPanel**: Shows file paths with status badges (+新增, ~修改, -删除) and +N/-M stats, but NO icons.\n\nThe user wants language-specific file icons. The simplest approach is to create an icon mapping utility that returns an appropriate icon (emoji or Unicode character) based on the file extension, similar to how VS Code or file explorers show different icons for different file types.\n\nI can use a simple emoji-based approach:\n- `.ts`, `.tsx` → 🔷 (TypeScript blue)\n- `.js`, `.jsx` → 🟨 (JavaScript yellow)\n- `.vue` → 💚 (Vue green)\n- `.css`, `.scss` → 🎨\n- `.html` → 🌐\n- `.json` → 📋\n- `.md` → 📝\n- `.go` → 🔵\n- `.py` → 🐍\n- `.rs` → ⚙️\n- `.java` → ☕\n- etc.\n\nOr I could use Unicode file icons similar to what popular editors use. Let me create a utility function `getFileIcon(fileName: string): string` that maps extensions to icons.\n\nI'll create a simple utility in `frontend/src/utils/fileIcon.ts` and use it in both `FileTreePanel.vue` and `FileChangesPanel.vue`.\n\nLet me implement this.",
+      "updatedAt": 1780118164922
+    },
+    "1dc079f97dcf04da368ac14eff3913a7dd49f4f28aeba223dac0bc5c08d5c415": {
+      "reasoning": "Now update FileTreePanel.vue to use `getFileIcon` instead of the generic emoji icons in `getIcon()`.",
+      "updatedAt": 1780118171094
+    },
+    "6bc4ef979d4948c1b1a924af49ed7022364c248be27f37ee4f8601269f9be969": {
+      "reasoning": "Now update FileChangesPanel.vue to add file icons.",
+      "updatedAt": 1780118186389
+    },
+    "c6cea3511df8891f8d4c21d7569469c0f204d9e9e002e817bbc984ab6856f9f3": {
+      "reasoning": "Build succeeds. Let me commit.",
+      "updatedAt": 1780118233145
     }
   },
   "toolContextReasoning": {
@@ -5125,6 +5189,22 @@
     "928b7a6ba738b669f449742a3e76798153eb0f1104f161cdefd6cccdfc30aa9e": {
       "reasoning": "Good, the code looks correct. Let me verify the Go side compiles and summarize.\n\nThe flow now:\n1. `CreateTerminal()` → Go creates PTY, starts shell, returns id\n2. `addSSHTab(id, ...)` → Vue reacts, creates TerminalView component\n3. `await nextTick()` → wait for DOM update\n4. `await sleep(100)` → wait for TerminalView's `onMounted` to complete (async nextTick + xterm setup + subscription)\n5. `WriteToTerminal(id, 'cd \"path\"\\nstartup-cmd\\n')` → sends commands\n6. TerminalView is subscribed, receives and displays all output\n\nThis ensures:\n- TerminalView is fully initialized and subscribed before we send any commands\n- cd output + startup command output are all captured and displayed\n- The user sees: shell prompt → cd command → new prompt in workspace → startup command → startup command output",
       "updatedAt": 1779968339833
+    },
+    "ad86df9e6120d4a183d95842529a8e682bbb7f5b75c68709dddc2b8a2605741d": {
+      "reasoning": "Now I understand the current UI. Currently:\n\n1. **FileTreePanel**: Uses emoji icons for files (📄) and folders (📁/📂). The `getIcon()` function only returns generic folder/file emojis.\n\n2. **FileChangesPanel**: Shows file paths with status badges (+新增, ~修改, -删除) and +N/-M stats, but NO icons.\n\nThe user wants language-specific file icons. The simplest approach is to create an icon mapping utility that returns an appropriate icon (emoji or Unicode character) based on the file extension, similar to how VS Code or file explorers show different icons for different file types.\n\nI can use a simple emoji-based approach:\n- `.ts`, `.tsx` → 🔷 (TypeScript blue)\n- `.js`, `.jsx` → 🟨 (JavaScript yellow)\n- `.vue` → 💚 (Vue green)\n- `.css`, `.scss` → 🎨\n- `.html` → 🌐\n- `.json` → 📋\n- `.md` → 📝\n- `.go` → 🔵\n- `.py` → 🐍\n- `.rs` → ⚙️\n- `.java` → ☕\n- etc.\n\nOr I could use Unicode file icons similar to what popular editors use. Let me create a utility function `getFileIcon(fileName: string): string` that maps extensions to icons.\n\nI'll create a simple utility in `frontend/src/utils/fileIcon.ts` and use it in both `FileTreePanel.vue` and `FileChangesPanel.vue`.\n\nLet me implement this.",
+      "updatedAt": 1780118164922
+    },
+    "89e8c5ccbf303d66a394073700f6aba771e54f06c80a384486d6d02f8326d0f6": {
+      "reasoning": "Now update FileTreePanel.vue to use `getFileIcon` instead of the generic emoji icons in `getIcon()`.",
+      "updatedAt": 1780118171094
+    },
+    "825e9fe9de3b55f5f6f12a7dbb1cf229f21b93a77b8b636a279bd4058bb3a8d8": {
+      "reasoning": "Now update FileChangesPanel.vue to add file icons.",
+      "updatedAt": 1780118186389
+    },
+    "871cddb1f414b401d7cc2bad44dfa57d5cd08e7bd8c5a8b131fdb6ed2340a8f1": {
+      "reasoning": "Build succeeds. Let me commit.",
+      "updatedAt": 1780118233145
     }
   }
 }
